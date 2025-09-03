@@ -1,8 +1,8 @@
-from dashboard_helper import get_dashboard_data
-import boto3
-import json
-from datetime import datetime, timedelta
+
 import logging
+import boto3
+from datetime import datetime
+from dashboard_helper import get_dashboard_data
 
 METRIC_TYPES = {
     "internalErrors": {"name": "SRA MS Errors", "type": "Error"},
@@ -12,59 +12,8 @@ METRIC_TYPES = {
 }
 
 logging.basicConfig(level=logging.INFO)
-
 cloudWatchClient = boto3.client("cloudwatch")
-
 sraDashboardResponse = get_dashboard_data("test-SRA-Dashboard")
-
-
-def get_metrics_data(metric_query):
-    response = cloudWatchClient.get_metric_data(
-        MetricDataQueries=[metric_query],
-        StartTime=START_TIME,
-        EndTime=END_TIME,
-        ScanBy="TimestampAscending",
-        LabelOptions={
-        "Timezone": "+0530"
-        }
-    )
-    return response['MetricDataResults']
-
-def get_metrics_with_threshold(threshold, query):
-    """
-        This function returns the metrics which crosses threshold
-        :threshold - 0 for errors and 500 for performance
-    """
-
-    metricsData = get_metrics_data(query)
-    errorsDict = dict()
-    errorCount = 0
-
-    for index in range(len(metricsData[0]["Values"])):
-        if metricsData[0]["Values"][index] > threshold:
-            errorCount += metricsData[0]["Values"][index]
-            errorsDict[metricsData[0]["Timestamps"][index].isoformat()] = metricsData[0]["Values"][index]
-    
-    # if(errorCount > threshold):
-    print("\n")
-    print(query["Id"])
-    print("Errors Count:", errorCount)
-    print("Errors Dictionary:", errorsDict)
-    return errorCount, errorsDict
-
-
-def getMetricsList(title):
-    metricsList = []
-    for widget in sraDashboardResponse["widgets"]:
-        if widget["properties"]["title"] != title:
-            continue
-
-        metrics = widget["properties"]["metrics"]
-
-        metricsList = list(metric[1] for metric in metrics)
-            
-    return metricsList
-
 
 NAMESPACE = "test.service.metrics"
 REGION = "us-west-2"
@@ -72,6 +21,34 @@ PERIOD = 60
 START_TIME = datetime(2025, 8, 24)
 END_TIME = datetime(2025, 8, 26)
 
+def get_metrics_data(metric_query):
+    response = cloudWatchClient.get_metric_data(
+        MetricDataQueries=[metric_query],
+        StartTime=START_TIME,
+        EndTime=END_TIME,
+        ScanBy="TimestampAscending",
+        LabelOptions={"Timezone": "+0530"}
+    )
+    return response['MetricDataResults']
+
+def get_metrics_with_threshold(threshold, query):
+    metricsData = get_metrics_data(query)
+    errorsDict = {}
+    errorCount = 0
+    for idx, value in enumerate(metricsData[0]["Values"]):
+        if value > threshold:
+            errorCount += value
+            errorsDict[metricsData[0]["Timestamps"][idx].isoformat()] = value
+    print(f"\n{query['Id']}")
+    print(f"Errors Count: {errorCount}")
+    print(f"Errors Dictionary: {errorsDict}")
+    return errorCount, errorsDict
+
+def getMetricsList(title):
+    for widget in sraDashboardResponse["widgets"]:
+        if widget["properties"]["title"] == title:
+            return [metric[1] for metric in widget["properties"]["metrics"]]
+    return []
 
 def get_metric_query(metricName, statType):
     return {
@@ -80,12 +57,7 @@ def get_metric_query(metricName, statType):
             "Metric": {
                 "Namespace": NAMESPACE,
                 "MetricName": metricName,
-                "Dimensions": [
-                    {
-                        "Name": "type",
-                        "Value": "gauge"
-                    },
-                ]
+                "Dimensions": [{"Name": "type", "Value": "gauge"}]
             },
             "Period": PERIOD,
             "Stat": statType,
@@ -94,18 +66,11 @@ def get_metric_query(metricName, statType):
     }
 
 def getAllMetricDetails():
-    for metric_type in METRIC_TYPES.keys():
-        print(f"Metrics for {METRIC_TYPES[metric_type]["name"]}")
-
-        if METRIC_TYPES[metric_type]["type"] == "Error":
-            threshold = 0
-            statType = "Sum"
-        else:
-            threshold = 500
-            statType = "Average"
-
-        for metricName in getMetricsList(METRIC_TYPES[metric_type]["name"]):
+    for metric_type, info in METRIC_TYPES.items():
+        print(f"Metrics for {info['name']}")
+        threshold = 0 if info["type"] == "Error" else 500
+        statType = "Sum" if info["type"] == "Error" else "Average"
+        for metricName in getMetricsList(info["name"]):
             query = get_metric_query(metricName, statType)
             get_metrics_with_threshold(threshold, query)
-
-        print("\n")
+        print()

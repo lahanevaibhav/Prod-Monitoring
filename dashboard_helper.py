@@ -1,13 +1,10 @@
 
 import boto3
 import json
-from datetime import datetime, timedelta
 import logging
 
 logging.basicConfig(level=logging.INFO)
-
 cloudWatchClient = boto3.client("cloudwatch")
-
 
 def get_dashboard_data(dashboard_name):
     response = cloudWatchClient.get_dashboard(DashboardName=dashboard_name)
