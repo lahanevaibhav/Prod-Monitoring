@@ -1,2 +1,4 @@
+# Ignore CSV data files
+csv_data/
 screenshots/
 __pycache__/

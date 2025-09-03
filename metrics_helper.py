@@ -1,4 +1,3 @@
-
 import logging
 import boto3
 from datetime import datetime
@@ -42,6 +41,7 @@ def get_metrics_with_threshold(threshold, query):
     print(f"\n{query['Id']}")
     print(f"Errors Count: {errorCount}")
     print(f"Errors Dictionary: {errorsDict}")
+    # CSV saving removed; handled in getAllMetricDetails
     return errorCount, errorsDict
 
 def getMetricsList(title):
@@ -66,11 +66,20 @@ def get_metric_query(metricName, statType):
     }
 
 def getAllMetricDetails():
+    from csv_helper import save_metrics_group_to_csv
     for metric_type, info in METRIC_TYPES.items():
         print(f"Metrics for {info['name']}")
         threshold = 0 if info["type"] == "Error" else 500
         statType = "Sum" if info["type"] == "Error" else "Average"
+        group_data = []
         for metricName in getMetricsList(info["name"]):
             query = get_metric_query(metricName, statType)
-            get_metrics_with_threshold(threshold, query)
+            errorCount, errorsDict = get_metrics_with_threshold(threshold, query)
+            for timestamp, value in errorsDict.items():
+                group_data.append({
+                    "metric": metricName,
+                    "timestamp": timestamp,
+                    "value": value
+                })
+        save_metrics_group_to_csv(info['name'], group_data)
         print()
