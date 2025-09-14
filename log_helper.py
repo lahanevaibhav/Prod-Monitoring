@@ -12,7 +12,8 @@ def clean_log_message(message):
         return ""
     
     # Define noise patterns to filter out
-    noise_patterns = ('java.base', 'org.springframework', 'org.apache', 'jakarta.servlet', 'jdk.internal')
+    noise_patterns = ('platform.shared', 'platform.boot', 'platform.rest', 'java.base', 
+                      'org.springframework', 'org.apache', 'jakarta.servlet', 'jdk.internal')
     
     # Process and filter lines in a single pass
     cleaned_lines = []
@@ -32,8 +33,6 @@ def get_time_range_for_logs(start_time, end_time):
     """Get the time range for log collection in milliseconds."""
     start_ms = int(start_time.timestamp() * 1000)
     end_ms = int(end_time.timestamp() * 1000)
-    print(f"Log collection time range: {start_time} to {end_time}")
-    print(f"Timestamp range: {start_ms} - {end_ms}")
     return start_ms, end_ms
 
 def fetch_log_events(logs_client, log_group, start_time, end_time, filter_pattern=None, next_token=None, limit=1000):
