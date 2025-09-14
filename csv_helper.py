@@ -21,18 +21,16 @@ def save_metrics_group_to_csv(group_name: str, group_data: List[Dict]):
     print(f"Saved grouped CSV: {filepath}")
     return filepath
 
-def save_error_logs(error_log_rows: list, period_label: str):
+def save_error_logs(error_log_rows: list):
     """
     Save all error logs to a single file, always overwriting (error_logs.csv).
     """
     filename = "error_logs.csv"
     filepath = os.path.join(CSV_DIR, filename)
     with open(filepath, mode='w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
+        writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
         writer.writerow(["timestamp", "log_message"])
         for row in error_log_rows:
             writer.writerow([row["timestamp"], row["log_message"]])
     print(f"Saved error logs: {filepath}")
-    return filepath
-    print(f"Saved grouped CSV: {filepath}")
     return filepath

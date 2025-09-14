@@ -3,7 +3,7 @@ from metrics_helper import getAllMetricDetails, METRIC_TYPES, START_TIME, END_TI
 from dashboard_helper import get_dashboard_data
 from screenshot_helper import save_metric_widget_image
 
-DASHBOARD_NAME = "test-SRA-Dashboard"
+DASHBOARD_NAME = "production-SRA-Dashboard"
 
 def main():
     getAllMetricDetails()

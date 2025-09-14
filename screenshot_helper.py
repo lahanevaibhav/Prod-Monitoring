@@ -11,10 +11,13 @@ def save_metric_widget_image(widget, metric_name, start_time, end_time):
     """
     Saves a CloudWatch metric widget image for the given metric and time range.
     """
+    statType = "Sum" if "Error" in metric_name else "Average"
     metric_widget_json = json.dumps({
         "metrics": widget["properties"]["metrics"],
         "view": "timeSeries",
         "stacked": False,
+        "stat": statType,
+        "period": 300,
         "region": cloudwatch_client.meta.region_name,
         "title": metric_name,
         "width": 900,
