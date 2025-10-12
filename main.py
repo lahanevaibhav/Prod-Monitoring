@@ -1,21 +1,12 @@
 
-from metrics_helper import getAllMetricDetails, METRIC_TYPES, START_TIME, END_TIME
-from dashboard_helper import get_dashboard_data
-from screenshot_helper import save_metric_widget_image
-
-DASHBOARD_NAME = "production-SRA-Dashboard"
+from metrics_helper import getAllMetricDetails, START_TIME, END_TIME, METRICS_METADATA_SRA
+from screenshot_helper import save_all_widgets_for_all_regions
 
 def main():
+    # Collect metrics + logs per region
     getAllMetricDetails()
-    dashboard_data = get_dashboard_data(DASHBOARD_NAME)
-    for widget in dashboard_data.get("widgets", []):
-        metric_name = widget["properties"].get("title", "unknown_metric")
-        save_metric_widget_image(
-            widget,
-            metric_name,
-            START_TIME,
-            END_TIME
-        )
+    # Now capture screenshots for every region dashboard into per-region folders
+    save_all_widgets_for_all_regions(start_time=START_TIME, end_time=END_TIME)
 
 if __name__ == "__main__":
     main()
