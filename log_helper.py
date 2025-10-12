@@ -12,7 +12,7 @@ def clean_log_message(message):
         return ""
     
     # Define noise patterns to filter out
-    noise_patterns = ('platform.shared', 'platform.boot', 'platform.rest', 'java.base', 
+    noise_patterns = ('shared.restclient', 'platform.shared', 'platform.boot', 'platform.rest', 'java.base',
                       'org.springframework', 'org.apache', 'jakarta.servlet', 'jdk.internal')
     
     # Process and filter lines in a single pass
@@ -64,7 +64,7 @@ def process_log_events(events):
         })
     return log_rows
 
-def collect_error_logs(log_group, start_time, end_time, filter_pattern='ERROR -METRICS_AGG -nginxinternal', max_entries=10000, max_iterations=100):
+def collect_error_logs(log_group, start_time, end_time, region, filter_pattern='ERROR -METRICS_AGG -nginxinternal', max_entries=10000, max_iterations=100):
     """
     Collect and save error logs from CloudWatch Logs.
     
@@ -79,7 +79,7 @@ def collect_error_logs(log_group, start_time, end_time, filter_pattern='ERROR -M
     Returns:
         int: Number of log entries collected
     """
-    logs_client = boto3.client("logs")
+    logs_client = boto3.client("logs", region_name=region)
     start_ms, end_ms = get_time_range_for_logs(start_time, end_time)
     error_log_rows = []
     iteration_count = 0
@@ -115,73 +115,6 @@ def collect_error_logs(log_group, start_time, end_time, filter_pattern='ERROR -M
         })
     
     # Save logs to CSV
-    save_error_logs(error_log_rows)
+    save_error_logs(error_log_rows, region=region)
     return len(error_log_rows)
 
-def collect_logs_from_multiple_groups(log_groups, start_time, end_time, filter_pattern='ERROR -METRICS_AGG -nginxinternal'):
-    """
-    Collect error logs from multiple CloudWatch log groups.
-    
-    Args:
-        log_groups (list): List of CloudWatch log group names
-        start_time (datetime): Start time for log collection
-        end_time (datetime): End time for log collection
-        filter_pattern (str): CloudWatch filter pattern for logs
-    
-    Returns:
-        dict: Dictionary with log group names as keys and entry counts as values
-    """
-    results = {}
-    
-    for log_group in log_groups:
-        print(f"Collecting logs from: {log_group}")
-        try:
-            count = collect_error_logs(log_group, start_time, end_time, filter_pattern)
-            results[log_group] = count
-        except Exception as e:
-            logging.error(f"Failed to collect logs from {log_group}: {e}")
-            results[log_group] = 0
-    
-    return results
-
-def get_log_group_info(log_group_name):
-    """Get information about a CloudWatch log group."""
-    logs_client = boto3.client("logs")
-    
-    try:
-        response = logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)
-        log_groups = response.get('logGroups', [])
-        
-        for group in log_groups:
-            if group['logGroupName'] == log_group_name:
-                return {
-                    'name': group['logGroupName'],
-                    'creation_time': datetime.fromtimestamp(group['creationTime'] / 1000),
-                    'retention_days': group.get('retentionInDays', 'Never expires'),
-                    'stored_bytes': group.get('storedBytes', 0),
-                    'metric_filter_count': group.get('metricFilterCount', 0)
-                }
-        
-        return None
-        
-    except Exception as e:
-        logging.error(f"Error getting log group info for {log_group_name}: {e}")
-        return None
-
-def list_available_log_groups(prefix=None, limit=50):
-    """List available CloudWatch log groups."""
-    logs_client = boto3.client("logs")
-    
-    try:
-        params = {'limit': limit}
-        if prefix:
-            params['logGroupNamePrefix'] = prefix
-            
-        response = logs_client.describe_log_groups(**params)
-        log_groups = response.get('logGroups', [])
-        
-        return [group['logGroupName'] for group in log_groups]
-        
-    except Exception as e:
-        logging.error(f"Error listing log groups: {e}")
-        return []
