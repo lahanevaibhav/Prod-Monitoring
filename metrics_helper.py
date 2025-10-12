@@ -106,7 +106,7 @@ def collect_metrics_data_for_region(region_code, dashboard_name, region_name, lo
         group_data = process_metric_type(cw_client, dashboard_body, metric_type_key, meta, namespace, start_time, end_time)
         save_metrics_group_to_csv(meta['name'], group_data, region=region_code)
     # Collect logs
-    collect_error_logs(log_group, start_time, end_time, region=region_name, max_entries=10000, max_iterations=100)
+    collect_error_logs(log_group, start_time, end_time, region_code,region=region_name, max_entries=10000, max_iterations=100)
 
 def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = END_TIME, regions: list | None = None):
     """Collect metrics & logs for all (or selected) regions defined in METRICS_METADATA_SRA.

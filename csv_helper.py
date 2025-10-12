@@ -2,15 +2,22 @@ import csv
 import os
 from typing import List, Dict, Optional
 
-CSV_DIR = os.path.join(os.path.dirname(__file__), 'csv_data')
-os.makedirs(CSV_DIR, exist_ok=True)
+ROOT_DIR = os.path.dirname(__file__)
+LEGACY_CSV_ROOT = os.path.join(ROOT_DIR, 'csv_data')  # kept for backwards compatibility
+os.makedirs(LEGACY_CSV_ROOT, exist_ok=True)
 
-def _region_dir(region: Optional[str]):
+def _region_csv_dir(region: Optional[str]):
+    """Return path to region-specific csv_data directory.
+
+    New structure: <root>/<REGION>/csv_data
+    Fallback (no region): <root>/csv_data (legacy)
+    """
     if not region:
-        return CSV_DIR
-    path = os.path.join(CSV_DIR, region)
-    os.makedirs(path, exist_ok=True)
-    return path
+        return LEGACY_CSV_ROOT
+    region_root = os.path.join(ROOT_DIR, region)
+    csv_dir = os.path.join(region_root, 'csv_data')
+    os.makedirs(csv_dir, exist_ok=True)
+    return csv_dir
 
 def save_metrics_group_to_csv(group_name: str, group_data: List[Dict], region: Optional[str] = None):
     """Save grouped metric data to a CSV file.
@@ -19,7 +26,7 @@ def save_metrics_group_to_csv(group_name: str, group_data: List[Dict], region: O
     Each row: metric, timestamp, value
     """
     filename = f"{group_name}.csv"
-    dir_path = _region_dir(region)
+    dir_path = _region_csv_dir(region)
     filepath = os.path.join(dir_path, filename)
     with open(filepath, mode='w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
@@ -31,9 +38,9 @@ def save_metrics_group_to_csv(group_name: str, group_data: List[Dict], region: O
     return filepath
 
 def save_error_logs(error_log_rows: list, region: Optional[str] = None):
-    """Save error logs to region-specific folder if provided (csv_data/<region>/error_logs.csv)."""
+    """Save error logs to region-specific folder if provided (<region>/csv_data/error_logs.csv)."""
     filename = "error_logs.csv"
-    dir_path = _region_dir(region)
+    dir_path = _region_csv_dir(region)
     filepath = os.path.join(dir_path, filename)
     with open(filepath, mode='w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)

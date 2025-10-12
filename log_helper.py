@@ -64,7 +64,7 @@ def process_log_events(events):
         })
     return log_rows
 
-def collect_error_logs(log_group, start_time, end_time, region, filter_pattern='ERROR -METRICS_AGG -nginxinternal', max_entries=10000, max_iterations=100):
+def collect_error_logs(log_group, start_time, end_time, region_code, region, filter_pattern='ERROR -METRICS_AGG -nginxinternal', max_entries=10000, max_iterations=100):
     """
     Collect and save error logs from CloudWatch Logs.
     
@@ -115,6 +115,6 @@ def collect_error_logs(log_group, start_time, end_time, region, filter_pattern='
         })
     
     # Save logs to CSV
-    save_error_logs(error_log_rows, region=region)
+    save_error_logs(error_log_rows, region_code)
     return len(error_log_rows)
 

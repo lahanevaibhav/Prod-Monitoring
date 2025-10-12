@@ -7,8 +7,9 @@ from typing import Dict, Any, Iterable
 from metrics_helper import METRICS_METADATA_SRA, START_TIME, END_TIME
 from dashboard_helper import get_dashboard_data
 
-SCREENSHOTS_DIR = os.path.join(os.path.dirname(__file__), 'screenshots')
-os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+ROOT_DIR = os.path.dirname(__file__)
+GLOBAL_SCREENSHOTS_DIR = os.path.join(ROOT_DIR, 'screenshots')  # legacy root screenshots (kept for backwards comp.)
+os.makedirs(GLOBAL_SCREENSHOTS_DIR, exist_ok=True)
 cloudwatch_client = boto3.client("cloudwatch")  # default client (may be reused for NA1 aggregate if desired)
 
 def save_metric_widget_image(widget, metric_name, start_time, end_time, region_code: str | None = None):
@@ -31,10 +32,12 @@ def save_metric_widget_image(widget, metric_name, start_time, end_time, region_c
     })
     response = cloudwatch_client.get_metric_widget_image(MetricWidget=metric_widget_json)
     # Region specific folder (screenshots/<region_code>) if provided
-    target_dir = SCREENSHOTS_DIR
     if region_code:
-        target_dir = os.path.join(SCREENSHOTS_DIR, region_code)
+        region_root = os.path.join(ROOT_DIR, region_code)
+        target_dir = os.path.join(region_root, 'screenshots')
         os.makedirs(target_dir, exist_ok=True)
+    else:
+        target_dir = GLOBAL_SCREENSHOTS_DIR
     filename = f"{metric_name}.png"
     filepath = os.path.join(target_dir, filename)
     with open(filepath, "wb") as f:
