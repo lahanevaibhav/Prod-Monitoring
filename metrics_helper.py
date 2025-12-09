@@ -1,20 +1,22 @@
 import logging
 import boto3
+import os
 from datetime import datetime
-from dashboard_helper import get_dashboard_data
 import json
 from csv_helper import save_metrics_group_to_csv
 from log_helper import collect_error_logs
 
 
-METRIC_TYPES = {
-    "internalErrors": {"name": "SRA MS Errors", "type": "Error"},
-    "externalErrors": {"name": "External APis Errors", "type": "Error"},
-    "internalPerformance": {"name": "SRA performance in MS", "type": "Performance"},
-    "externalPerformance": {"name": "External APIs performance in MS", "type": "Performance"}
-}
-
 logging.basicConfig(level=logging.INFO)
+
+def get_metric_types(service_name):
+    """Generate metric type definitions for a given service (SRA or SRM)."""
+    return {
+        "internalErrors": {"name": f"{service_name} MS Errors", "type": "Error"},
+        "externalErrors": {"name": "External APis Errors", "type": "Error"},
+        "internalPerformance": {"name": f"{service_name} performance in MS", "type": "Performance"},
+        "externalPerformance": {"name": "External APIs performance in MS", "type": "Performance"}
+    }
 
 # Region metadata: region_code -> (dashboard_name, aws_region, log_group)
 METRICS_METADATA_SRA = {
@@ -26,11 +28,26 @@ METRICS_METADATA_SRA = {
     "UK": ("production-uk-SRA-Dashboard", "eu-west-2", "production-uk-schedule-rules-automation")
 }
 
-# Default time range; can be overridden per call
-START_TIME = datetime(2025, 10, 10)
-END_TIME = datetime(2025, 10, 11)
+METRICS_METADATA_SRM = {
+    "NA1": ("production-SRM-Dashboard", "us-west-2", "production-schedule-requests-manager"),
+    "AU": ("production-au-SRM-Dashboard", "ap-southeast-2", "production-au-schedule-requests-manager"),
+    "CA": ("production-ca-SRM-Dashboard", "ca-central-1", "production-ca-schedule-requests-manager"),
+    "JP": ("production-jp-SRM-Dashboard", "ap-northeast-1", "production-jp-schedule-requests-manager"),
+    "DE": ("production-de-SRM-Dashboard", "eu-central-1", "production-de-schedule-requests-manager"),
+    "UK": ("production-uk-SRM-Dashboard", "eu-west-2", "production-uk-schedule-requests-manager")
+}
 
-PERIOD = 60
+# Service metadata mapping
+SERVICES_METADATA = {
+    "SRA": METRICS_METADATA_SRA,
+    "SRM": METRICS_METADATA_SRM
+}
+
+# Default time range; can be overridden per call
+START_TIME = datetime(2025, 12, 7, 0, 0, 0)
+END_TIME = datetime(2025, 12, 8, 0, 0, 0)
+
+PERIOD = 300
 
 def make_cloudwatch_client(region_name: str):
     return boto3.client("cloudwatch", region_name=region_name)
@@ -45,8 +62,8 @@ def get_metrics_data(cw_client, metric_query, start_time, end_time):
         MetricDataQueries=[metric_query],
         StartTime=start_time,
         EndTime=end_time,
-        ScanBy="TimestampAscending",
-        LabelOptions={"Timezone": "+0530"}
+        ScanBy="TimestampAscending"
+        # No LabelOptions - uses local timezone by default
     )
     return response['MetricDataResults']
 
@@ -94,32 +111,44 @@ def process_metric_type(cw_client, dashboard_body, metric_type_key, metric_type_
             group_data.append({"metric": metricName, "timestamp": timestamp, "value": value})
     return group_data
 
-def collect_metrics_data_for_region(region_code, dashboard_name, region_name, log_group, start_time, end_time):
-    """Collect metrics & logs for a single region and save in region subfolder."""
-    print(f"Collecting region {region_code} (dashboard={dashboard_name}, aws_region={region_name})")
+def collect_metrics_data_for_region(region_code, dashboard_name, region_name, log_group, start_time, end_time, service_name, metric_types):
+    """Collect metrics & logs for a single region and save in service-specific region subfolder."""
+    region_folder = os.path.join(service_name, region_code)
+    print(f"Collecting {service_name} for region {region_code} (dashboard={dashboard_name}, aws_region={region_name})")
     dashboard_body = get_dashboard(dashboard_name, region_name)
     cw_client = make_cloudwatch_client(region_name)
     namespace = f"production-{region_code.lower()}.service.metrics"  # Could vary per region if needed
     if region_code == "NA1":
         namespace = "production.service.metrics"
-    for metric_type_key, meta in METRIC_TYPES.items():
+    for metric_type_key, meta in metric_types.items():
         group_data = process_metric_type(cw_client, dashboard_body, metric_type_key, meta, namespace, start_time, end_time)
-        save_metrics_group_to_csv(meta['name'], group_data, region=region_code)
+        save_metrics_group_to_csv(meta['name'], group_data, region=region_folder)
     # Collect logs
-    collect_error_logs(log_group, start_time, end_time, region_code,region=region_name, max_entries=10000, max_iterations=100)
+    collect_error_logs(log_group, start_time, end_time, region_folder, region=region_name, max_entries=10000, max_iterations=100)
 
-def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = END_TIME, regions: list | None = None):
-    """Collect metrics & logs for all (or selected) regions defined in METRICS_METADATA_SRA.
+def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = END_TIME, regions: list | None = None, services: list | None = None):
+    """Collect metrics & logs for all (or selected) services and regions.
 
     Args:
         start_time: Start time for metric & log collection.
         end_time: End time.
         regions: Optional list of region codes to restrict collection.
+        services: Optional list of service names (SRA, SRM) to restrict collection.
     """
-    selected = regions if regions else METRICS_METADATA_SRA.keys()
-    for region_code in selected:
-        if region_code not in METRICS_METADATA_SRA:
-            logging.warning(f"Region code {region_code} not defined in METRICS_METADATA_SRA; skipping")
+    selected_services = services if services else SERVICES_METADATA.keys()
+
+    for service_name in selected_services:
+        if service_name not in SERVICES_METADATA:
+            logging.warning(f"Service {service_name} not defined in SERVICES_METADATA; skipping")
             continue
-        dashboard_name, aws_region, log_group = METRICS_METADATA_SRA[region_code]
-        collect_metrics_data_for_region(region_code, dashboard_name, aws_region, log_group, start_time, end_time)
+
+        metadata = SERVICES_METADATA[service_name]
+        metric_types = get_metric_types(service_name)
+        selected_regions = regions if regions else metadata.keys()
+
+        for region_code in selected_regions:
+            if region_code not in metadata:
+                logging.warning(f"Region code {region_code} not defined for service {service_name}; skipping")
+                continue
+            dashboard_name, aws_region, log_group = metadata[region_code]
+            collect_metrics_data_for_region(region_code, dashboard_name, aws_region, log_group, start_time, end_time, service_name, metric_types)

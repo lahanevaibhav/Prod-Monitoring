@@ -13,7 +13,7 @@ def clean_log_message(message):
     
     # Define noise patterns to filter out
     noise_patterns = ('shared.restclient', 'platform.shared', 'platform.boot', 'platform.rest', 'java.base',
-                      'org.springframework', 'org.apache', 'jakarta.servlet', 'jdk.internal')
+                      'org.springframework', 'org.apache', 'jakarta.servlet', 'jdk.internal', 'fasterxml.jackson')
     
     # Process and filter lines in a single pass
     cleaned_lines = []

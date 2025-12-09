@@ -9,7 +9,7 @@ os.makedirs(LEGACY_CSV_ROOT, exist_ok=True)
 def _region_csv_dir(region: Optional[str]):
     """Return path to region-specific csv_data directory.
 
-    New structure: <root>/<REGION>/csv_data
+    New structure: <root>/<SERVICE>/<REGION>/csv_data
     Fallback (no region): <root>/csv_data (legacy)
     """
     if not region:
