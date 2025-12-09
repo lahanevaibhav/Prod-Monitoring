@@ -6,12 +6,25 @@ from csv_helper import save_error_logs
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
+def should_exclude_log(message):
+    """Check if entire log entry should be excluded based on useless patterns."""
+    if not message or not message.strip():
+        return True
+
+    # Patterns that indicate the entire log entry is useless
+    exclude_patterns = (
+        'NotificationDispatcherImpl',
+    )
+
+    # If message contains any exclude pattern, skip entire log entry
+    return any(pattern in message for pattern in exclude_patterns)
+
 def clean_log_message(message):
     """Clean log message to prevent CSV formatting issues and filter out framework noise."""
     if not message or not message.strip():
         return ""
     
-    # Define noise patterns to filter out
+    # Define noise patterns to filter out from individual lines
     noise_patterns = ('shared.restclient', 'platform.shared', 'platform.boot', 'platform.rest', 'java.base',
                       'org.springframework', 'org.apache', 'jakarta.servlet', 'jdk.internal', 'fasterxml.jackson')
     
@@ -55,13 +68,20 @@ def fetch_log_events(logs_client, log_group, start_time, end_time, filter_patter
     return logs_client.filter_log_events(**params)
 
 def process_log_events(events):
-    """Process log events and convert to required format."""
+    """Process log events and convert to required format, excluding useless entries."""
     log_rows = []
     for event in events:
-        log_rows.append({
-            "timestamp": datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
-            "log_message": clean_log_message(event['message'])
-        })
+        # Skip entire log entry if it contains useless patterns
+        if should_exclude_log(event['message']):
+            continue
+
+        cleaned_message = clean_log_message(event['message'])
+        # Only add if there's actual content after cleaning
+        if cleaned_message:
+            log_rows.append({
+                "timestamp": datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
+                "log_message": cleaned_message
+            })
     return log_rows
 
 def collect_error_logs(log_group, start_time, end_time, region_code, region, filter_pattern='ERROR -METRICS_AGG -nginxinternal', max_entries=10000, max_iterations=100):
