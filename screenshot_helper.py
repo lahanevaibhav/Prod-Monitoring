@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Iterable
 
-from metrics_helper import METRICS_METADATA_SRA, SERVICES_METADATA, START_TIME, END_TIME
+from metrics_helper import METRICS_METADATA_SRA, SERVICES_METADATA, START_TIME, END_TIME, SERVICES_METADATA_PERF
 from dashboard_helper import get_dashboard_data
 
 ROOT_DIR = os.path.dirname(__file__)
@@ -12,9 +12,10 @@ GLOBAL_SCREENSHOTS_DIR = os.path.join(ROOT_DIR, 'screenshots')  # legacy root sc
 os.makedirs(GLOBAL_SCREENSHOTS_DIR, exist_ok=True)
 cloudwatch_client = boto3.client("cloudwatch")  # default client (may be reused for NA1 aggregate if desired)
 
-def save_metric_widget_image(widget, metric_name, start_time, end_time, region_code: str | None = None):
+
+def save_metric_widget_image(widget, metric_name, start_time, end_time, target_dir: str):
     """
-    Saves a CloudWatch metric widget image for the given metric and time range.
+    Saves a CloudWatch metric widget image for the given metric and time range into target_dir.
     """
     statType = "Sum" if "Error" in metric_name else "Average"
     metric_widget_json = json.dumps({
@@ -25,19 +26,13 @@ def save_metric_widget_image(widget, metric_name, start_time, end_time, region_c
         "period": 300,
         "region": cloudwatch_client.meta.region_name,
         "title": metric_name,
-        "width": 900,
-        "height": 600,
+        "width": 1200,
+        "height": 800,
         "start": start_time.strftime("%Y-%m-%dT%H:%M:%S"),
         "end": end_time.strftime("%Y-%m-%dT%H:%M:%S")
     })
     response = cloudwatch_client.get_metric_widget_image(MetricWidget=metric_widget_json)
-    # Region specific folder (screenshots/<region_code>) if provided
-    if region_code:
-        region_root = os.path.join(ROOT_DIR, region_code)
-        target_dir = os.path.join(region_root, 'screenshots')
-        os.makedirs(target_dir, exist_ok=True)
-    else:
-        target_dir = GLOBAL_SCREENSHOTS_DIR
+    os.makedirs(target_dir, exist_ok=True)
     filename = f"{metric_name}.png"
     filepath = os.path.join(target_dir, filename)
     with open(filepath, "wb") as f:
@@ -45,21 +40,31 @@ def save_metric_widget_image(widget, metric_name, start_time, end_time, region_c
     print(f"Saved widget image: {filepath}")
     return filepath
 
-def save_all_widgets_for_region(region_code: str, service_name: str = "SRA", start_time=START_TIME, end_time=END_TIME):
-    """Fetch dashboard for region and service, save screenshots for every widget into service-specific region folder."""
-    if service_name not in SERVICES_METADATA:
-        print(f"Service {service_name} not configured in SERVICES_METADATA")
+
+def save_all_widgets_for_region(region_code: str, service_name: str = "SRA", start_time=START_TIME, end_time=END_TIME, is_perf: bool = False):
+    """Fetch dashboard for region and service, save screenshots for every widget into service-specific region folder.
+
+    When is_perf=True screenshots are saved under <ROOT>/perf/<service>/<region>/screenshots
+    Otherwise under <ROOT>/prod/<service>/<region>/screenshots
+    """
+    # Choose metadata map based on perf/prod
+    metadata_map = SERVICES_METADATA_PERF if is_perf else SERVICES_METADATA
+    if service_name not in metadata_map:
+        print(f"Service {service_name} not configured in metadata_map")
         return []
 
-    metadata = SERVICES_METADATA[service_name]
+    metadata = metadata_map[service_name]
     if region_code not in metadata:
         print(f"Region {region_code} not configured for service {service_name}")
         return []
 
-    region_folder = os.path.join(service_name, region_code)
+    top_dir = "perf" if is_perf else "prod"
+    region_folder = os.path.join(ROOT_DIR, top_dir, service_name, region_code)
+    screenshots_dir = os.path.join(region_folder, 'screenshots')
+
     dashboard_name, aws_region, _log_group = metadata[region_code]
     cw_client = boto3.client("cloudwatch", region_name=aws_region)
-    # override global client region for widget generation; simpler than changing function signature widely
+    # override global client region for widget generation
     global cloudwatch_client
     cloudwatch_client = cw_client
     dashboard = get_dashboard_data(dashboard_name, cw_client)
@@ -67,23 +72,28 @@ def save_all_widgets_for_region(region_code: str, service_name: str = "SRA", sta
     for widget in dashboard.get("widgets", []):
         metric_name = widget["properties"].get("title", "unknown_metric")
         try:
-            path = save_metric_widget_image(widget, metric_name, start_time, end_time, region_code=region_folder)
+            path = save_metric_widget_image(widget, metric_name, start_time, end_time, target_dir=screenshots_dir)
             saved.append(path)
         except Exception as e:
             print(f"Failed to save widget {metric_name} for service {service_name} region {region_code}: {e}")
     return saved
 
-def save_all_widgets_for_all_regions(start_time=START_TIME, end_time=END_TIME, regions: Iterable[str] | None = None, services: Iterable[str] | None = None):
-    """Iterate through all configured services and regions and save screenshots."""
-    selected_services = services if services else SERVICES_METADATA.keys()
+
+def save_all_widgets_for_all_regions(start_time=START_TIME, end_time=END_TIME, regions: Iterable[str] | None = None, services: Iterable[str] | None = None, is_perf: bool = False):
+    """Iterate through all configured services and regions and save screenshots.
+
+    When is_perf=True it uses the perf metadata map and saves under perf/<service>/<region>/screenshots
+    """
+    metadata_map = SERVICES_METADATA_PERF if is_perf else SERVICES_METADATA
+    selected_services = services if services else metadata_map.keys()
     results: Dict[str, Dict[str, list[str]]] = {}
 
     for service_name in selected_services:
-        if service_name not in SERVICES_METADATA:
+        if service_name not in metadata_map:
             print(f"Service {service_name} not configured; skipping")
             continue
 
-        metadata = SERVICES_METADATA[service_name]
+        metadata = metadata_map[service_name]
         targets = regions if regions else metadata.keys()
         results[service_name] = {}
 
@@ -91,6 +101,6 @@ def save_all_widgets_for_all_regions(start_time=START_TIME, end_time=END_TIME, r
             if code not in metadata:
                 print(f"Region {code} not configured for service {service_name}; skipping")
                 continue
-            results[service_name][code] = save_all_widgets_for_region(code, service_name, start_time, end_time)
+            results[service_name][code] = save_all_widgets_for_region(code, service_name, start_time, end_time, is_perf=is_perf)
 
     return results

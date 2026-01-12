@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>{region} - Metrics Plots Report</title>
+    <style>
+        :root {{
+            --bg: #ffffff;
+            --panel: #ffffff;
+            --border: rgba(0,0,0,0.06);
+            --text: #0b1220;
+            --muted: rgba(11,18,32,0.6);
+            --accent: #2563eb;
+            --radius: 6px;
+        }}
+
+        * {{ box-sizing: border-box; }}
+        html, body {{ height: 100%; }}
+        body {{
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+            line-height: 1.35;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }}
+
+        .container {{ width: 100%; max-width: 100%; margin: 0; padding: 6mm; }}
+
+        .topbar {{ display:block; padding-bottom: 6mm; border-bottom: 1px solid var(--border); margin-bottom: 8mm; }}
+        .title {{ font-weight:800; font-size:20px; margin-bottom:4px; }}
+        .meta {{ color:var(--muted); font-size:13px; }}
+
+        /* Main content: no sidebar, only wide content area */
+        main.content {{ width: 100%; }}
+        .group {{ margin: 0 0 12mm 0; }}
+        .group-header {{ font-weight:700; margin:0 0 6mm 0; font-size:16px; }}
+
+        /* Grid: two columns for plots; rows increase based on image count */
+        .grid {{ display:grid; grid-template-columns: 1fr 1fr; gap: 8mm; align-items:start; }}
+
+        /* On very narrow screens, fall back to single column */
+        @media (max-width: 700px) {{
+            .grid {{ grid-template-columns: 1fr; }}
+            .container {{ padding: 12px; }}
+        }}
+
+        /* Plot card: minimal chrome so plots occupy most of the card */
+        .plot {{
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            padding: 0;
+            display:flex;
+            flex-direction:column;
+            gap:6px;
+        }}
+        .plot-title {{ font-weight:700; font-size:14px; margin-bottom:4px; }}
+        .plot-body {{ display:flex; justify-content:center; align-items:center; }}
+        .plot-body img {{ width: 100%; height: auto; display:block; object-fit:contain; }}
+
+        footer {{ margin-top:12mm; color:var(--muted); font-size:12px; text-align:center; }}
+
+        /* Print / PDF tuning */
+        @page {{ size: A4; margin: 6mm; }}
+        @media print {{
+            /* Use full page area for plots */
+            .container {{ padding: 0; margin: 0; }}
+            .topbar {{ padding: 6mm; }}
+            main.content {{ padding: 0 6mm; }}
+
+            /* Keep two columns in print to maximize plot sizes */
+            .grid {{ grid-template-columns: 1fr 1fr; gap: 6mm; }}
+
+            /* Ensure each logical group starts on a new PDF page */
+            .group {{ page-break-before: always; break-before: page; margin-top: 0; padding-top: 6mm; }}
+            .group:first-of-type {{ page-break-before: avoid; }}
+
+            /* Avoid splitting individual plot cards */
+            .plot {{ page-break-inside: avoid; break-inside: avoid; }}
+
+            /* Hide non-essential chrome if any */
+            footer {{ display:block; }}
+        }}
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="topbar">
+        <div class="title">{region} — Metrics Plots Report</div>
+        <div class="meta">Generated: {now} • Plots: {total_plots} • Mode: {mode}</div>
+    </div>
+
+    <main class="content">
+        {groups_html}
+    </main>
+
+    <footer>
+        Titles are generated from filenames. Each group begins on a new PDF page.
+    </footer>
+</div>
+</body>
+</html>

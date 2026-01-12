@@ -12,3 +12,4 @@ def get_dashboard_data(dashboard_name, cw_client=None):
     response = client.get_dashboard(DashboardName=dashboard_name)
     return json.loads(response["DashboardBody"])
 
+

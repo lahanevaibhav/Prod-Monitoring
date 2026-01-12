@@ -2,3 +2,6 @@
 csv_data/
 screenshots/
 __pycache__/
+perf/
+prod/
+.idea/

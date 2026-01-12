@@ -37,10 +37,24 @@ METRICS_METADATA_SRM = {
     "UK": ("production-uk-SRM-Dashboard", "eu-west-2", "production-uk-schedule-requests-manager")
 }
 
-# Service metadata mapping
+# New perf-only metadata for SRA and SRM (for now only NA1 is present)
+METRICS_METADATA_SRA_PERF = {
+    "NA1": ("perf-wcx-SRA-Dashboard", "us-west-2", "perf-wcx-schedule-rules-automation")
+}
+
+METRICS_METADATA_SRM_PERF = {
+    "NA1": ("perf-wcx-SRM-Dashboard", "us-west-2", "perf-wcx-schedule-requests-manager")
+}
+
+# Service metadata mapping (prod)
 SERVICES_METADATA = {
     "SRA": METRICS_METADATA_SRA,
     "SRM": METRICS_METADATA_SRM
+}
+
+SERVICES_METADATA_PERF = {
+    "SRA": METRICS_METADATA_SRA_PERF,
+    "SRM": METRICS_METADATA_SRM_PERF
 }
 
 # Default time range; can be overridden per call
@@ -49,13 +63,16 @@ END_TIME = datetime(2025, 12, 8, 0, 0, 0)
 
 PERIOD = 300
 
+
 def make_cloudwatch_client(region_name: str):
     return boto3.client("cloudwatch", region_name=region_name)
+
 
 def get_dashboard(region_dashboard: str, region_name: str):
     cw = make_cloudwatch_client(region_name)
     response = cw.get_dashboard(DashboardName=region_dashboard)
     return json.loads(response["DashboardBody"])
+
 
 def get_metrics_data(cw_client, metric_query, start_time, end_time):
     response = cw_client.get_metric_data(
@@ -66,6 +83,7 @@ def get_metrics_data(cw_client, metric_query, start_time, end_time):
         # No LabelOptions - uses local timezone by default
     )
     return response['MetricDataResults']
+
 
 def get_metrics_with_threshold(cw_client, threshold, query, start_time, end_time):
     metricsData = get_metrics_data(cw_client, query, start_time, end_time)
@@ -78,11 +96,13 @@ def get_metrics_with_threshold(cw_client, threshold, query, start_time, end_time
     # CSV saving removed; handled in getAllMetricDetails
     return errorCount, errorsDict
 
+
 def getMetricsList(dashboard_body, title):
     for widget in dashboard_body["widgets"]:
         if widget["properties"].get("title") == title:
             return [metric[1] for metric in widget["properties"].get("metrics", [])]
     return []
+
 
 def get_metric_query(metricName, statType, namespace):
     return {
@@ -99,6 +119,7 @@ def get_metric_query(metricName, statType, namespace):
         "ReturnData": True
     }
 
+
 def process_metric_type(cw_client, dashboard_body, metric_type_key, metric_type_meta, namespace, start_time, end_time):
     """Process a single metric type for a region and return collected data."""
     threshold = 0 if metric_type_meta["type"] == "Error" else 500
@@ -111,10 +132,17 @@ def process_metric_type(cw_client, dashboard_body, metric_type_key, metric_type_
             group_data.append({"metric": metricName, "timestamp": timestamp, "value": value})
     return group_data
 
-def collect_metrics_data_for_region(region_code, dashboard_name, region_name, log_group, start_time, end_time, service_name, metric_types):
-    """Collect metrics & logs for a single region and save in service-specific region subfolder."""
-    region_folder = os.path.join(service_name, region_code)
-    print(f"Collecting {service_name} for region {region_code} (dashboard={dashboard_name}, aws_region={region_name})")
+
+def collect_metrics_data_for_region(region_code, dashboard_name, region_name, log_group, start_time, end_time, service_name, metric_types, is_perf: bool = False):
+    """Collect metrics & logs for a single region and save in service-specific region subfolder.
+
+    Data will be written under either `prod/<service>/<region>/` or `perf/<service>/<region>/` depending on `is_perf`.
+    """
+    top_dir = "perf" if is_perf else "prod"
+    region_folder = os.path.join(top_dir, service_name, region_code)
+    os.makedirs(region_folder, exist_ok=True)
+
+    print(f"Collecting {service_name} for region {region_code} (dashboard={dashboard_name}, aws_region={region_name}) into {region_folder}")
     dashboard_body = get_dashboard(dashboard_name, region_name)
     cw_client = make_cloudwatch_client(region_name)
     namespace = f"production-{region_code.lower()}.service.metrics"  # Could vary per region if needed
@@ -126,7 +154,8 @@ def collect_metrics_data_for_region(region_code, dashboard_name, region_name, lo
     # Collect logs
     collect_error_logs(log_group, start_time, end_time, region_folder, region=region_name, max_entries=10000, max_iterations=100)
 
-def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = END_TIME, regions: list | None = None, services: list | None = None):
+
+def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = END_TIME, regions: list | None = None, services: list | None = None, is_perf: bool = False):
     """Collect metrics & logs for all (or selected) services and regions.
 
     Args:
@@ -134,15 +163,24 @@ def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = 
         end_time: End time.
         regions: Optional list of region codes to restrict collection.
         services: Optional list of service names (SRA, SRM) to restrict collection.
+        is_perf: If True, use the PERf-specific metadata and write under `perf/` top-level folder.
     """
-    selected_services = services if services else SERVICES_METADATA.keys()
+    # Decide default services based on whether this is a perf run or prod run
+    if services:
+        selected_services = services
+    else:
+        selected_services = SERVICES_METADATA_PERF.keys() if is_perf else SERVICES_METADATA.keys()
 
     for service_name in selected_services:
-        if service_name not in SERVICES_METADATA:
-            logging.warning(f"Service {service_name} not defined in SERVICES_METADATA; skipping")
+        # Use the appropriate metadata mapping for validation and lookup
+        metadata_map = SERVICES_METADATA_PERF if is_perf else SERVICES_METADATA
+        if service_name not in metadata_map:
+            logging.warning(f"Service {service_name} not defined in {'SERVICES_METADATA_PERF' if is_perf else 'SERVICES_METADATA'}; skipping")
             continue
 
-        metadata = SERVICES_METADATA[service_name]
+        # Choose metadata for the selected service from the appropriate map
+        metadata = metadata_map[service_name]
+
         metric_types = get_metric_types(service_name)
         selected_regions = regions if regions else metadata.keys()
 
@@ -151,4 +189,4 @@ def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = 
                 logging.warning(f"Region code {region_code} not defined for service {service_name}; skipping")
                 continue
             dashboard_name, aws_region, log_group = metadata[region_code]
-            collect_metrics_data_for_region(region_code, dashboard_name, aws_region, log_group, start_time, end_time, service_name, metric_types)
+            collect_metrics_data_for_region(region_code, dashboard_name, aws_region, log_group, start_time, end_time, service_name, metric_types, is_perf=is_perf)
