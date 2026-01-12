@@ -2,9 +2,13 @@ import logging
 import boto3
 from datetime import datetime
 from csv_helper import save_error_logs
+from anonymizer import anonymize_log_message
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+
+# Global flag to enable/disable anonymization (set to True when preparing data for LLM)
+ANONYMIZE_LOGS = True  # Set to False to keep raw logs for internal debugging
 
 def should_exclude_log(message):
     """Check if entire log entry should be excluded based on useless patterns."""
@@ -78,6 +82,10 @@ def process_log_events(events):
         cleaned_message = clean_log_message(event['message'])
         # Only add if there's actual content after cleaning
         if cleaned_message:
+            # Apply anonymization if enabled (for LLM consumption)
+            if ANONYMIZE_LOGS:
+                cleaned_message = anonymize_log_message(cleaned_message)
+            
             log_rows.append({
                 "timestamp": datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
                 "log_message": cleaned_message
