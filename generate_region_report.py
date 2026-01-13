@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 
-# === CONFIG: edit these values to control which regions and images are included ===
 # List of region directory names (subfolders under service dirs) to generate reports for.
 REPORT_REGIONS = [
     "AU",
@@ -23,18 +22,7 @@ SERVICES = ["SRA", "SRM"]
 
 # Name of the screenshots subfolder inside each service/region directory
 SCREENSHOTS_DIRNAME = "screenshots"
-
-# Exact image filenames to include (in desired order). If this list is non-empty,
-# the script will pick files that match these names (case-insensitive). You can
-# include names with or without extension (e.g., "SRA MS Errors.png" or "sra_ms_errors").
-# Example:
-# IMAGE_INCLUDE_NAMES = ["SRA MS Errors.png", "External APis Errors.png"]
 IMAGE_INCLUDE_NAMES = []
-
-# Image include patterns (glob or regex). Used only when IMAGE_INCLUDE_NAMES is empty.
-# - To use globs: "*Errors*.png,Max CPU*.png"
-# - To use regexes prefix with 're:' e.g. "re:^SRA.*Errors"
-# Default is all PNGs in the screenshots folder.
 IMAGE_INCLUDE_PATTERNS = "*.png"
 
 # Whether to embed images into the HTML (base64). Set to True for standalone HTML.
