@@ -6,6 +6,31 @@ Redacts: usernames, emails, names, UUIDs, tenant IDs, timestamps, and other PII.
 import re
 
 
+def _redact_tenant_like_values(text: str) -> str:
+    if not text:
+        return text
+
+    # Bracketed tenant tokens seen in these logs, e.g.:
+    # [legal_answer_edge_llc26123588] or [some-tenant_12345] or [tenant_name]
+    text = re.sub(r"\[[A-Za-z0-9][A-Za-z0-9._]*\d{3,}\]", "[TENANT_REDACTED]", text)
+    text = re.sub(r"\[(tenant|customer|org|organization|account)[:=]\s*[^\]]+\]", "[TENANT_REDACTED]", text, flags=re.IGNORECASE)
+
+    # Key/value forms commonly appearing in structured log payloads
+    # tenantId=..., tenant=..., customer=..., organizationName=..., tenantName=...
+    text = re.sub(
+        r"\b(tenantId|tenantID|tenant|tenantName|customer|customerName|organization|organizationName|org|account|accountName)\b\s*[:=]\s*('([^']+)'|\"([^\"]+)\"|([^,\s\]}]+))",
+        lambda m: f"{m.group(1)}=[TENANT_REDACTED]",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # URL path/query occurrences
+    text = re.sub(r"(/tenants/)([^/?\s]+)", r"\1[TENANT_REDACTED]", text, flags=re.IGNORECASE)
+    text = re.sub(r"(tenant(?:Id|ID|Name)?=)([^&\s]+)", r"\1[TENANT_REDACTED]", text, flags=re.IGNORECASE)
+
+    return text
+
+
 def anonymize_log_message(message: str) -> str:
     """
     Remove or redact sensitive information from log messages.
@@ -21,7 +46,10 @@ def anonymize_log_message(message: str) -> str:
     
     # Apply all anonymization patterns
     anonymized = message
-    
+
+    # Tenant/org masking (run early to avoid leaking names inside other structures)
+    anonymized = _redact_tenant_like_values(anonymized)
+
     # 1. Email addresses (e.g., john.doe@example.com)
     anonymized = re.sub(
         r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
@@ -80,7 +108,10 @@ def anonymize_log_message(message: str) -> str:
         '[PHONE_REDACTED]',
         anonymized
     )
-    
+
+    # Run tenant masking again after other substitutions (covers values introduced by normalization)
+    anonymized = _redact_tenant_like_values(anonymized)
+
     return anonymized
 
 
