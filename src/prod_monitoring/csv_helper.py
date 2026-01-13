@@ -1,6 +1,8 @@
 import csv
 import os
+import re
 from typing import List, Dict, Optional
+from collections import Counter, defaultdict
 
 # Base output directory: repo_root/output
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
@@ -64,8 +66,6 @@ def save_error_logs(error_log_rows: list, region: Optional[str] = None):
 
 def classify_and_save_errors(error_log_path: str, dir_path: str):
     """Classify errors and save to classified_errors.csv"""
-    import re
-    from collections import Counter, defaultdict
 
     classified_path = os.path.join(dir_path, "classified_errors.csv")
 
@@ -126,14 +126,54 @@ def classify_and_save_errors(error_log_path: str, dir_path: str):
     print(f"Saved classified errors: {classified_path} ({len(error_signatures)} unique patterns)")
 
 def _extract_error_signature(log_message: str):
-    """Extract error signature from log message"""
+    """Extract error signature from log message.
+
+    Note: We add context for ServiceCallException-like cases where the exception
+    message is empty/generic, otherwise many different failures collapse into one bucket.
+    """
     import re
 
     if not log_message or not log_message.strip():
         return ("Unknown", "Unknown", "Empty log message")
 
+    def _normalize_first_error_line(text: str) -> str:
+        """Generic normalization for the first ERROR-line message.
+
+        Goal: keep the core action/summary, drop dynamic/huge payloads.
+        Avoid service-specific hardcoding.
+        """
+        if not text:
+            return ""
+
+        # Collapse very large structured payloads common in these logs.
+        # Examples: BaseSCRRequest{...}, RequestedChanges{...}, ActivityChange{...}
+        text = re.sub(r'\b\w+\{[^\n\r]{0,2000}\}', lambda m: (m.group(0).split('{', 1)[0] + '{...}'), text)
+
+        # Remove long bracket blocks (often contain dynamic context)
+        text = re.sub(r'\[[^\]]{40,}\]', '[...]', text)
+
+        # Remove URLs
+        text = re.sub(r'https?://\S+', '[URL]', text)
+
+        # Remove key=value segments where value is long/dynamic (UUIDs, timestamps, ids)
+        text = re.sub(r"\b\w+=[^,\s]{12,}", "key=[...]", text)
+
+        # Drop quoted payloads (keeps the fact there was a value)
+        text = re.sub(r"'[^']{12,}'", "'[...']", text)
+        text = re.sub(r'"[^"]{12,}"', '"..."', text)
+
+        # Normalize spaces/punctuation
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
+    # Capture the first log line's logger (the class after ERROR)
+    first_logger = ""
+    m_logger = re.search(r'\bERROR\s+(\S+)', log_message)
+    if m_logger:
+        first_logger = m_logger.group(1).split('.')[-1]
+
     # Extract exception type
-    exception_pattern = r'(java\.lang\.\w+Exception|com\.nice\.saas\.\S+Exception|\w+Exception):\s*(.+?)(?:\n|$)'
+    exception_pattern = r'(java\.lang\.\w+Exception|com\.nice\.saas\.wfo\.\S+Exception|\w+Exception):\s*(.+?)(?:\n|$)'
     exception_match = re.search(exception_pattern, log_message)
 
     if exception_match:
@@ -141,7 +181,34 @@ def _extract_error_signature(log_message: str):
         exception_message = exception_match.group(2).strip()
         normalized_message = _normalize_error_message(exception_message)
         location = _extract_error_location(log_message)
-        signature = f"{exception_type}: {normalized_message}"
+
+        # Treat stack-trace-only or empty exception messages as "generic".
+        is_generic = (
+            not normalized_message
+            or normalized_message in {"", "{}", "unknown", "n/a"}
+            or normalized_message.startswith("at com.")
+            or normalized_message.startswith("at org.")
+        )
+
+        if is_generic:
+            # First ERROR line message (after the trailing ] block)
+            first_error_line = ""
+            m_msg = re.search(r'\bERROR\b[^\n]*?\]\s+(.+?)(?:\n|$)', log_message)
+            if m_msg:
+                first_error_line = m_msg.group(1).strip()
+
+            first_error_line_norm = _normalize_error_message(_normalize_first_error_line(first_error_line))
+
+            parts = [exception_type]
+            if first_logger:
+                parts.append(first_logger)
+            if first_error_line_norm:
+                parts.append(first_error_line_norm)
+
+            signature = " | ".join(parts)
+        else:
+            signature = f"{exception_type}: {normalized_message}"
+
         return (exception_type, location, signature)
 
     # Fallback to ERROR pattern
@@ -160,7 +227,6 @@ def _extract_error_signature(log_message: str):
 
 def _normalize_error_message(message: str) -> str:
     """Normalize error message by removing dynamic data"""
-    import re
 
     message = re.sub(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '[UUID]', message, flags=re.IGNORECASE)
     message = re.sub(r'\b[0-9a-f]{16}\b', '[HEX-ID]', message)

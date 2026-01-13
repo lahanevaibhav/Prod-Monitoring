@@ -30,7 +30,7 @@ def clean_log_message(message):
         return ""
     
     # Define noise patterns to filter out from individual lines
-    noise_patterns = ('shared.restclient', 'platform.shared', 'platform.boot', 'platform.rest', 'java.base',
+    noise_patterns = ('shared.restclient', 'platform.shared', 'platform.boot', 'java.base',
                       'org.springframework', 'org.apache', 'jakarta.servlet', 'jdk.internal', 'fasterxml.jackson')
     
     # Process and filter lines in a single pass
@@ -93,7 +93,7 @@ def process_log_events(events):
             })
     return log_rows
 
-def collect_error_logs(log_group, start_time, end_time, region_code, region, filter_pattern='ERROR -METRICS_AGG -nginxinternal', max_entries=10000, max_iterations=100):
+def collect_error_logs(log_group, start_time, end_time, region_code, region, filter_pattern='ERROR -METRICS_AGG', max_entries=10000, max_iterations=100):
     """
     Collect and save error logs from CloudWatch Logs.
     
