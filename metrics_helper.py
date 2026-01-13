@@ -57,10 +57,6 @@ SERVICES_METADATA_PERF = {
     "SRM": METRICS_METADATA_SRM_PERF
 }
 
-# Default time range; can be overridden per call
-START_TIME = datetime(2025, 12, 7, 0, 0, 0)
-END_TIME = datetime(2025, 12, 8, 0, 0, 0)
-
 PERIOD = 300
 
 
@@ -155,7 +151,7 @@ def collect_metrics_data_for_region(region_code, dashboard_name, region_name, lo
     collect_error_logs(log_group, start_time, end_time, region_folder, region=region_name, max_entries=10000, max_iterations=100)
 
 
-def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = END_TIME, regions: list | None = None, services: list | None = None, is_perf: bool = False):
+def getAllMetricDetails(start_time: datetime | None = None, end_time: datetime | None = None, regions: list | None = None, services: list | None = None, is_perf: bool = False):
     """Collect metrics & logs for all (or selected) services and regions.
 
     Args:
@@ -165,6 +161,9 @@ def getAllMetricDetails(start_time: datetime = START_TIME, end_time: datetime = 
         services: Optional list of service names (SRA, SRM) to restrict collection.
         is_perf: If True, use the PERf-specific metadata and write under `perf/` top-level folder.
     """
+    if start_time is None or end_time is None:
+        raise ValueError("start_time and end_time must be provided (configured in main.py)")
+
     # Decide default services based on whether this is a perf run or prod run
     if services:
         selected_services = services

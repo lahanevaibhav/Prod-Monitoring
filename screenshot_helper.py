@@ -1,10 +1,9 @@
 import os
 import boto3
 import json
-from datetime import datetime
-from typing import Dict, Any, Iterable
+from typing import Dict, Iterable
 
-from metrics_helper import METRICS_METADATA_SRA, SERVICES_METADATA, START_TIME, END_TIME, SERVICES_METADATA_PERF
+from metrics_helper import SERVICES_METADATA, SERVICES_METADATA_PERF
 from dashboard_helper import get_dashboard_data
 
 ROOT_DIR = os.path.dirname(__file__)
@@ -41,12 +40,15 @@ def save_metric_widget_image(widget, metric_name, start_time, end_time, target_d
     return filepath
 
 
-def save_all_widgets_for_region(region_code: str, service_name: str = "SRA", start_time=START_TIME, end_time=END_TIME, is_perf: bool = False):
+def save_all_widgets_for_region(region_code: str, service_name: str = "SRA", start_time=None, end_time=None, is_perf: bool = False):
     """Fetch dashboard for region and service, save screenshots for every widget into service-specific region folder.
 
     When is_perf=True screenshots are saved under <ROOT>/perf/<service>/<region>/screenshots
     Otherwise under <ROOT>/prod/<service>/<region>/screenshots
     """
+    if start_time is None or end_time is None:
+        raise ValueError("start_time and end_time must be provided (configured in main.py)")
+
     # Choose metadata map based on perf/prod
     metadata_map = SERVICES_METADATA_PERF if is_perf else SERVICES_METADATA
     if service_name not in metadata_map:
@@ -79,11 +81,14 @@ def save_all_widgets_for_region(region_code: str, service_name: str = "SRA", sta
     return saved
 
 
-def save_all_widgets_for_all_regions(start_time=START_TIME, end_time=END_TIME, regions: Iterable[str] | None = None, services: Iterable[str] | None = None, is_perf: bool = False):
+def save_all_widgets_for_all_regions(start_time=None, end_time=None, regions: Iterable[str] | None = None, services: Iterable[str] | None = None, is_perf: bool = False):
     """Iterate through all configured services and regions and save screenshots.
 
     When is_perf=True it uses the perf metadata map and saves under perf/<service>/<region>/screenshots
     """
+    if start_time is None or end_time is None:
+        raise ValueError("start_time and end_time must be provided (configured in main.py)")
+
     metadata_map = SERVICES_METADATA_PERF if is_perf else SERVICES_METADATA
     selected_services = services if services else metadata_map.keys()
     results: Dict[str, Dict[str, list[str]]] = {}
