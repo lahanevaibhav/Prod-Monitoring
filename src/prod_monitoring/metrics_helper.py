@@ -3,7 +3,8 @@ import boto3
 import os
 from datetime import datetime
 import json
-from csv_helper import save_metrics_group_to_csv
+
+from csv_helper import save_metrics_group_to_csv, OUTPUT_ROOT
 from log_helper import collect_error_logs
 
 
@@ -21,20 +22,20 @@ def get_metric_types(service_name):
 # Region metadata: region_code -> (dashboard_name, aws_region, log_group)
 METRICS_METADATA_SRA = {
     "NA1": ("production-SRA-Dashboard", "us-west-2", "production-schedule-rules-automation"),
-    "AU": ("production-au-SRA-Dashboard", "ap-southeast-2", "production-au-schedule-rules-automation"),
-    "CA": ("production-ca-SRA-Dashboard", "ca-central-1", "production-ca-schedule-rules-automation"),
-    "JP": ("production-jp-SRA-Dashboard", "ap-northeast-1", "production-jp-schedule-rules-automation"),
-    "DE": ("production-de-SRA-Dashboard", "eu-central-1", "production-de-schedule-rules-automation"),
-    "UK": ("production-uk-SRA-Dashboard", "eu-west-2", "production-uk-schedule-rules-automation")
+    # "AU": ("production-au-SRA-Dashboard", "ap-southeast-2", "production-au-schedule-rules-automation"),
+    # "CA": ("production-ca-SRA-Dashboard", "ca-central-1", "production-ca-schedule-rules-automation"),
+    # "JP": ("production-jp-SRA-Dashboard", "ap-northeast-1", "production-jp-schedule-rules-automation"),
+    # "DE": ("production-de-SRA-Dashboard", "eu-central-1", "production-de-schedule-rules-automation"),
+    # "UK": ("production-uk-SRA-Dashboard", "eu-west-2", "production-uk-schedule-rules-automation")
 }
 
 METRICS_METADATA_SRM = {
     "NA1": ("production-SRM-Dashboard", "us-west-2", "production-schedule-requests-manager"),
-    "AU": ("production-au-SRM-Dashboard", "ap-southeast-2", "production-au-schedule-requests-manager"),
-    "CA": ("production-ca-SRM-Dashboard", "ca-central-1", "production-ca-schedule-requests-manager"),
-    "JP": ("production-jp-SRM-Dashboard", "ap-northeast-1", "production-jp-schedule-requests-manager"),
-    "DE": ("production-de-SRM-Dashboard", "eu-central-1", "production-de-schedule-requests-manager"),
-    "UK": ("production-uk-SRM-Dashboard", "eu-west-2", "production-uk-schedule-requests-manager")
+    # "AU": ("production-au-SRM-Dashboard", "ap-southeast-2", "production-au-schedule-requests-manager"),
+    # "CA": ("production-ca-SRM-Dashboard", "ca-central-1", "production-ca-schedule-requests-manager"),
+    # "JP": ("production-jp-SRM-Dashboard", "ap-northeast-1", "production-jp-schedule-requests-manager"),
+    # "DE": ("production-de-SRM-Dashboard", "eu-central-1", "production-de-schedule-requests-manager"),
+    # "UK": ("production-uk-SRM-Dashboard", "eu-west-2", "production-uk-schedule-requests-manager")
 }
 
 # New perf-only metadata for SRA and SRM (for now only NA1 is present)
@@ -132,10 +133,11 @@ def process_metric_type(cw_client, dashboard_body, metric_type_key, metric_type_
 def collect_metrics_data_for_region(region_code, dashboard_name, region_name, log_group, start_time, end_time, service_name, metric_types, is_perf: bool = False):
     """Collect metrics & logs for a single region and save in service-specific region subfolder.
 
-    Data will be written under either `prod/<service>/<region>/` or `perf/<service>/<region>/` depending on `is_perf`.
+    Data will be written under `output/prod/<service>/<region>/` or `output/perf/<service>/<region>/`.
     """
     top_dir = "perf" if is_perf else "prod"
-    region_folder = os.path.join(top_dir, service_name, region_code)
+    region_rel_folder = os.path.join(top_dir, service_name, region_code)
+    region_folder = os.path.join(OUTPUT_ROOT, region_rel_folder)
     os.makedirs(region_folder, exist_ok=True)
 
     print(f"Collecting {service_name} for region {region_code} (dashboard={dashboard_name}, aws_region={region_name}) into {region_folder}")
@@ -146,9 +148,9 @@ def collect_metrics_data_for_region(region_code, dashboard_name, region_name, lo
         namespace = "production.service.metrics"
     for metric_type_key, meta in metric_types.items():
         group_data = process_metric_type(cw_client, dashboard_body, metric_type_key, meta, namespace, start_time, end_time)
-        save_metrics_group_to_csv(meta['name'], group_data, region=region_folder)
+        save_metrics_group_to_csv(meta['name'], group_data, region=region_rel_folder)
     # Collect logs
-    collect_error_logs(log_group, start_time, end_time, region_folder, region=region_name, max_entries=10000, max_iterations=100)
+    collect_error_logs(log_group, start_time, end_time, region_rel_folder, region=region_name, max_entries=10000, max_iterations=100)
 
 
 def getAllMetricDetails(start_time: datetime | None = None, end_time: datetime | None = None, regions: list | None = None, services: list | None = None, is_perf: bool = False):

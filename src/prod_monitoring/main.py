@@ -12,7 +12,7 @@ IS_PERF = False
 
 _now = datetime.now()
 _today_start = _now.replace(hour=0, minute=0, second=0, microsecond=0)
-START_TIME = _today_start - timedelta(days=3)
+START_TIME = _today_start - timedelta(days=2)
 END_TIME = _today_start - timedelta(seconds=1)
 
 def main(is_perf: bool = IS_PERF):

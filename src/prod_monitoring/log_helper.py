@@ -1,6 +1,7 @@
 import logging
 import boto3
 from datetime import datetime
+
 from csv_helper import save_error_logs
 from anonymizer import anonymize_log_message
 
@@ -145,4 +146,3 @@ def collect_error_logs(log_group, start_time, end_time, region_code, region, fil
     # Save logs to CSV
     save_error_logs(error_log_rows, region_code)
     return len(error_log_rows)
-

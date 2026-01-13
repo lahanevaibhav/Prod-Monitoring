@@ -5,6 +5,7 @@ from typing import Dict, Iterable
 
 from metrics_helper import SERVICES_METADATA, SERVICES_METADATA_PERF
 from dashboard_helper import get_dashboard_data
+from csv_helper import OUTPUT_ROOT
 
 ROOT_DIR = os.path.dirname(__file__)
 GLOBAL_SCREENSHOTS_DIR = os.path.join(ROOT_DIR, 'screenshots')  # legacy root screenshots (kept for backwards comp.)
@@ -61,7 +62,8 @@ def save_all_widgets_for_region(region_code: str, service_name: str = "SRA", sta
         return []
 
     top_dir = "perf" if is_perf else "prod"
-    region_folder = os.path.join(ROOT_DIR, top_dir, service_name, region_code)
+    region_rel_folder = os.path.join(top_dir, service_name, region_code)
+    region_folder = os.path.join(OUTPUT_ROOT, region_rel_folder)
     screenshots_dir = os.path.join(region_folder, 'screenshots')
 
     dashboard_name, aws_region, _log_group = metadata[region_code]

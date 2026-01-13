@@ -1,4 +1,3 @@
-
 import os
 import re
 import base64
@@ -36,7 +35,8 @@ BASE_DIR_ROOT = "."
 
 # ==================================================================================
 
-TEMPLATE_PATH = os.path.join("report_template.html")
+# Resolve template relative to this file so it works from any working directory.
+TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates", "report_template.html")
 
 
 def humanize_title(filename: str) -> str:
@@ -117,7 +117,10 @@ def build_groups_html(groups, embed, region_dir):
 
 def load_template():
     if not os.path.exists(TEMPLATE_PATH):
-        raise SystemExit(f"❌ Template not found: {TEMPLATE_PATH}. Create `templates/report_template.html` from the repo examples.")
+        raise SystemExit(
+            f"❌ Template not found: {TEMPLATE_PATH}. "
+            "Ensure src/prod_monitoring/templates/report_template.html exists."
+        )
     with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
         return f.read()
 
@@ -325,4 +328,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

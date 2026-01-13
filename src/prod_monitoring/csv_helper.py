@@ -2,20 +2,25 @@ import csv
 import os
 from typing import List, Dict, Optional
 
-ROOT_DIR = os.path.dirname(__file__)
-LEGACY_CSV_ROOT = os.path.join(ROOT_DIR, 'csv_data')  # kept for backwards compatibility
-os.makedirs(LEGACY_CSV_ROOT, exist_ok=True)
+# Base output directory: repo_root/output
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+OUTPUT_ROOT = os.path.join(REPO_ROOT, "output")
+
 
 def _region_csv_dir(region: Optional[str]):
-    """Return path to region-specific csv_data directory.
+    """Return path to a csv_data directory.
 
-    New structure: <root>/<SERVICE>/<REGION>/csv_data
-    Fallback (no region): <root>/csv_data (legacy)
+    Expected usage:
+    - If `region` is a full region folder path (e.g., 'prod/SRA/NA1' or 'perf/SRM/NA1'),
+      CSVs are written to: <repo_root>/output/<region>/csv_data
+    - If `region` is None, write to: <repo_root>/output/csv_data (legacy fallback)
     """
     if not region:
-        return LEGACY_CSV_ROOT
-    region_root = os.path.join(ROOT_DIR, region)
-    csv_dir = os.path.join(region_root, 'csv_data')
+        csv_dir = os.path.join(OUTPUT_ROOT, "csv_data")
+        os.makedirs(csv_dir, exist_ok=True)
+        return csv_dir
+
+    csv_dir = os.path.join(OUTPUT_ROOT, region, "csv_data")
     os.makedirs(csv_dir, exist_ok=True)
     return csv_dir
 
@@ -193,4 +198,3 @@ def _extract_error_location(log_message: str) -> str:
         return class_name
 
     return "Unknown"
-
