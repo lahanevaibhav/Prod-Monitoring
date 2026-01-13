@@ -10,13 +10,9 @@ def _redact_tenant_like_values(text: str) -> str:
     if not text:
         return text
 
-    # Bracketed tenant tokens seen in these logs, e.g.:
-    # [legal_answer_edge_llc26123588] or [some-tenant_12345] or [tenant_name]
     text = re.sub(r"\[[A-Za-z0-9][A-Za-z0-9._]*\d{3,}\]", "[TENANT_REDACTED]", text)
     text = re.sub(r"\[(tenant|customer|org|organization|account)[:=]\s*[^\]]+\]", "[TENANT_REDACTED]", text, flags=re.IGNORECASE)
 
-    # Key/value forms commonly appearing in structured log payloads
-    # tenantId=..., tenant=..., customer=..., organizationName=..., tenantName=...
     text = re.sub(
         r"\b(tenantId|tenantID|tenant|tenantName|customer|customerName|organization|organizationName|org|account|accountName)\b\s*[:=]\s*('([^']+)'|\"([^\"]+)\"|([^,\s\]}]+))",
         lambda m: f"{m.group(1)}=[TENANT_REDACTED]",
