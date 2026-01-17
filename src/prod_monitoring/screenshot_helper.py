@@ -3,7 +3,7 @@ import boto3
 import json
 from typing import Dict, Iterable
 
-from metrics_helper import SERVICES_METADATA, SERVICES_METADATA_PERF
+from config import SERVICES_METADATA, SERVICES_METADATA_PERF
 from dashboard_helper import get_dashboard_data
 from csv_helper import OUTPUT_ROOT
 
@@ -17,7 +17,13 @@ def save_metric_widget_image(widget, metric_name, start_time, end_time, target_d
     """
     Saves a CloudWatch metric widget image for the given metric and time range into target_dir.
     """
-    statType = "Sum" if "Error" in metric_name else "Average"
+    # Determine statistic type based on metric name
+    if "Error" in metric_name:
+        statType = "Sum"
+    elif "CPU" in metric_name or "Memory" in metric_name:
+        statType = "Maximum"
+    else:
+        statType = "Average"
     metric_widget_json = json.dumps({
         "metrics": widget["properties"]["metrics"],
         "view": "timeSeries",

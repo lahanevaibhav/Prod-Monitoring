@@ -6,6 +6,7 @@ import json
 
 from csv_helper import save_metrics_group_to_csv, OUTPUT_ROOT
 from log_helper import collect_error_logs
+from config import SERVICES_METADATA, SERVICES_METADATA_PERF, PERIOD
 
 
 logging.basicConfig(level=logging.INFO)
@@ -16,50 +17,9 @@ def get_metric_types(service_name):
         "internalErrors": {"name": f"{service_name} MS Errors", "type": "Error"},
         "externalErrors": {"name": "External APis Errors", "type": "Error"},
         "internalPerformance": {"name": f"{service_name} performance in MS", "type": "Performance"},
-        "externalPerformance": {"name": "External APIs performance in MS", "type": "Performance"}
+        "externalPerformance": {"name": "External APIs performance in MS", "type": "Performance"},
+        "cpuUsage": {"name": "Max CPU and Memory", "type": "gauge"},
     }
-
-# Region metadata: region_code -> (dashboard_name, aws_region, log_group)
-METRICS_METADATA_SRA = {
-    "NA1": ("production-SRA-Dashboard", "us-west-2", "production-schedule-rules-automation"),
-    # "AU": ("production-au-SRA-Dashboard", "ap-southeast-2", "production-au-schedule-rules-automation"),
-    # "CA": ("production-ca-SRA-Dashboard", "ca-central-1", "production-ca-schedule-rules-automation"),
-    # "JP": ("production-jp-SRA-Dashboard", "ap-northeast-1", "production-jp-schedule-rules-automation"),
-    # "DE": ("production-de-SRA-Dashboard", "eu-central-1", "production-de-schedule-rules-automation"),
-    # "UK": ("production-uk-SRA-Dashboard", "eu-west-2", "production-uk-schedule-rules-automation")
-}
-
-METRICS_METADATA_SRM = {
-    "NA1": ("production-SRM-Dashboard", "us-west-2", "production-schedule-requests-manager"),
-    # "AU": ("production-au-SRM-Dashboard", "ap-southeast-2", "production-au-schedule-requests-manager"),
-    # "CA": ("production-ca-SRM-Dashboard", "ca-central-1", "production-ca-schedule-requests-manager"),
-    # "JP": ("production-jp-SRM-Dashboard", "ap-northeast-1", "production-jp-schedule-requests-manager"),
-    # "DE": ("production-de-SRM-Dashboard", "eu-central-1", "production-de-schedule-requests-manager"),
-    # "UK": ("production-uk-SRM-Dashboard", "eu-west-2", "production-uk-schedule-requests-manager")
-}
-
-# New perf-only metadata for SRA and SRM (for now only NA1 is present)
-METRICS_METADATA_SRA_PERF = {
-    "NA1": ("perf-wcx-SRA-Dashboard", "us-west-2", "perf-wcx-schedule-rules-automation")
-}
-
-METRICS_METADATA_SRM_PERF = {
-    "NA1": ("perf-wcx-SRM-Dashboard", "us-west-2", "perf-wcx-schedule-requests-manager")
-}
-
-# Service metadata mapping (prod)
-SERVICES_METADATA = {
-    "SRA": METRICS_METADATA_SRA,
-    "SRM": METRICS_METADATA_SRM
-}
-
-SERVICES_METADATA_PERF = {
-    "SRA": METRICS_METADATA_SRA_PERF,
-    "SRM": METRICS_METADATA_SRM_PERF
-}
-
-PERIOD = 300
-
 
 def make_cloudwatch_client(region_name: str):
     return boto3.client("cloudwatch", region_name=region_name)
@@ -95,20 +55,54 @@ def get_metrics_with_threshold(cw_client, threshold, query, start_time, end_time
 
 
 def getMetricsList(dashboard_body, title):
+    """Extract full metric definitions from a dashboard widget by title.
+
+    Returns a list of metric definitions, where each definition is the full metric array
+    from the dashboard (e.g., ["AWS/ECS", "CPUUtilization", "ServiceName", "...", ...])
+    """
     for widget in dashboard_body["widgets"]:
         if widget["properties"].get("title") == title:
-            return [metric[1] for metric in widget["properties"].get("metrics", [])]
+            return widget["properties"].get("metrics", [])
     return []
 
 
-def get_metric_query(metricName, statType, namespace):
+def get_metric_query(metric_def, statType):
+    """Build a CloudWatch metric query from a dashboard metric definition.
+
+    Args:
+        metric_def: Full metric array from dashboard, e.g.:
+            ["AWS/ECS", "CPUUtilization", "ServiceName", "wfm-...", "ClusterName", "..."]
+            or ["namespace", "MetricName", "DimKey", "DimValue", ...]
+        statType: The statistic type (e.g., "Maximum", "Sum", "Average")
+
+    Returns:
+        A CloudWatch MetricDataQuery dict
+    """
+    # Parse the metric definition array
+    namespace = metric_def[0]
+    metric_name = metric_def[1]
+
+    # Build dimensions from the remaining key-value pairs
+    dimensions = []
+    i = 2
+    while i < len(metric_def) - 1:
+        dim_key = metric_def[i]
+        dim_value = metric_def[i + 1]
+        # Skip placeholder values like "."
+        if dim_key != "." and dim_value != ".":
+            dimensions.append({"Name": dim_key, "Value": dim_value})
+        i += 2
+
+    # Generate a unique ID for this metric
+    metric_id = "".join(metric_name.split()).lower().replace(".", "_").replace("-", "_")
+
     return {
-        "Id": "".join(metricName.split()).lower().replace(".", "_").replace("-", "_"),
+        "Id": metric_id,
         "MetricStat": {
             "Metric": {
                 "Namespace": namespace,
-                "MetricName": metricName,
-                "Dimensions": [{"Name": "type", "Value": "gauge"}]
+                "MetricName": metric_name,
+                "Dimensions": dimensions
             },
             "Period": PERIOD,
             "Stat": statType,
@@ -117,16 +111,32 @@ def get_metric_query(metricName, statType, namespace):
     }
 
 
-def process_metric_type(cw_client, dashboard_body, metric_type_key, metric_type_meta, namespace, start_time, end_time):
+def process_metric_type(cw_client, dashboard_body, metric_type_key, metric_type_meta, start_time, end_time):
     """Process a single metric type for a region and return collected data."""
-    threshold = 0 if metric_type_meta["type"] == "Error" else 500
-    statType = "Sum" if metric_type_meta["type"] == "Error" else "Average"
+    # Determine threshold and stat type based on metric name
+    metric_name = metric_type_meta["name"]
+    if "Error" in metric_name:
+        threshold = 0
+        statType = "Sum"
+    elif "CPU" in metric_name or "Memory" in metric_name:
+        # For CPU and Memory, threshold is 70%
+        threshold = 70
+        statType = "Maximum"
+    else:
+        # For Performance metrics, threshold is 500ms
+        threshold = 500
+        statType = "Average"
+
     group_data = []
-    for metricName in getMetricsList(dashboard_body, metric_type_meta["name"]):
-        query = get_metric_query(metricName, statType, namespace)
+    for metric_def in getMetricsList(dashboard_body, metric_type_meta["name"]):
+        # Extract the metric name for labeling (it's the second element)
+        metric_name = metric_def[1]
+
+        # Build query with the full metric definition
+        query = get_metric_query(metric_def, statType)
         _count, errorsDict = get_metrics_with_threshold(cw_client, threshold, query, start_time, end_time)
         for timestamp, value in errorsDict.items():
-            group_data.append({"metric": metricName, "timestamp": timestamp, "value": value})
+            group_data.append({"metric": metric_name, "timestamp": timestamp, "value": value})
     return group_data
 
 
@@ -143,11 +153,8 @@ def collect_metrics_data_for_region(region_code, dashboard_name, region_name, lo
     print(f"Collecting {service_name} for region {region_code} (dashboard={dashboard_name}, aws_region={region_name}) into {region_folder}")
     dashboard_body = get_dashboard(dashboard_name, region_name)
     cw_client = make_cloudwatch_client(region_name)
-    namespace = f"production-{region_code.lower()}.service.metrics"  # Could vary per region if needed
-    if region_code == "NA1":
-        namespace = "production.service.metrics"
     for metric_type_key, meta in metric_types.items():
-        group_data = process_metric_type(cw_client, dashboard_body, metric_type_key, meta, namespace, start_time, end_time)
+        group_data = process_metric_type(cw_client, dashboard_body, metric_type_key, meta, start_time, end_time)
         save_metrics_group_to_csv(meta['name'], group_data, region=region_rel_folder)
     # Collect logs
     collect_error_logs(log_group, start_time, end_time, region_rel_folder, region=region_name, max_entries=10000, max_iterations=100)

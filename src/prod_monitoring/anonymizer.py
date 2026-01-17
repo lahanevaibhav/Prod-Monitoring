@@ -3,145 +3,108 @@ Anonymization utilities for removing sensitive information from logs and data.
 Redacts: usernames, emails, names, UUIDs, tenant IDs, timestamps, and other PII.
 """
 
+from __future__ import annotations
+
+import os
 import re
+from typing import Callable
+
+# Pre-compiled regex patterns (kept in the same effective order as before)
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_USERNAME_SQ_RE = re.compile(r"userName='([^']+)'")
+_USERNAME_JSON_RE = re.compile(r'"userName"\s*:\s*"([^"]+)"')
+_NAME_RE = re.compile(r"\b([A-Z][a-z]+\s+[A-Z][a-z]+)\b(?=[\s,\'\"])" )
+_STATUS_UPDATER_RE = re.compile(r"statusUpdaterName='([^']+)'")
+_USER_COMMENT_RE = re.compile(r"userComment='([^']+)'")
+_USER_BRACKET_RE = re.compile(r"\[user:\s*([^]]+)]", flags=re.IGNORECASE)
+_PHONE_RE = re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b")
+
+# Tenant/org related patterns
+_TENANT_BRACKETED_ID_RE = re.compile(r"\[[A-Za-z0-9][A-Za-z0-9._-]*\d{3,}]")
+_TENANT_BRACKETED_KV_RE = re.compile(r"\[(tenant|customer|org|organization|account)[:=]\s*[^]]+]", flags=re.IGNORECASE)
+_TENANT_KV_RE = re.compile(
+    r"\b(tenantId|tenantID|tenant|tenantName|customer|customerName|organization|organizationName|org|account|accountName)\b\s*[:=]\s*(?:'[^']+'|\"[^\"]+\"|[^,\s\]}]+)",
+    flags=re.IGNORECASE,
+)
+_TENANT_PATH_RE = re.compile(r"(/tenants/)([^/?\s]+)", flags=re.IGNORECASE)
+_TENANT_QUERY_RE = re.compile(r"(tenant(?:Id|ID|Name)?=)([^&\s]+)", flags=re.IGNORECASE)
+
+
+def _sub(text: str, pattern: re.Pattern[str], repl: str | Callable[[re.Match[str]], str]) -> str:
+    return pattern.sub(repl, text)
 
 
 def _redact_tenant_like_values(text: str) -> str:
+    """Redact tenant/org identifiers in common log formats."""
     if not text:
         return text
 
-    text = re.sub(r"\[[A-Za-z0-9][A-Za-z0-9._]*\d{3,}\]", "[TENANT_REDACTED]", text)
-    text = re.sub(r"\[(tenant|customer|org|organization|account)[:=]\s*[^\]]+\]", "[TENANT_REDACTED]", text, flags=re.IGNORECASE)
+    text = _sub(text, _TENANT_BRACKETED_ID_RE, "[TENANT_REDACTED]")
+    text = _sub(text, _TENANT_BRACKETED_KV_RE, "[TENANT_REDACTED]")
 
-    text = re.sub(
-        r"\b(tenantId|tenantID|tenant|tenantName|customer|customerName|organization|organizationName|org|account|accountName)\b\s*[:=]\s*('([^']+)'|\"([^\"]+)\"|([^,\s\]}]+))",
-        lambda m: f"{m.group(1)}=[TENANT_REDACTED]",
-        text,
-        flags=re.IGNORECASE,
-    )
+    def _tenant_kv_repl(m: re.Match[str]) -> str:
+        # Preserve original key spelling/casing from the log
+        key = m.group(1)
+        return f"{key}=[TENANT_REDACTED]"
+
+    # Replace whole key/value token with key=[TENANT_REDACTED]
+    text = _TENANT_KV_RE.sub(_tenant_kv_repl, text)
 
     # URL path/query occurrences
-    text = re.sub(r"(/tenants/)([^/?\s]+)", r"\1[TENANT_REDACTED]", text, flags=re.IGNORECASE)
-    text = re.sub(r"(tenant(?:Id|ID|Name)?=)([^&\s]+)", r"\1[TENANT_REDACTED]", text, flags=re.IGNORECASE)
+    text = _TENANT_PATH_RE.sub(r"\1[TENANT_REDACTED]", text)
+    text = _TENANT_QUERY_RE.sub(r"\1[TENANT_REDACTED]", text)
 
     return text
 
 
 def anonymize_log_message(message: str) -> str:
-    """
-    Remove or redact sensitive information from log messages.
-    
-    Args:
-        message: Raw log message that may contain PII
-        
-    Returns:
-        Anonymized log message safe for LLM processing
-    """
+    """Remove or redact sensitive information from log messages."""
     if not message or not message.strip():
         return message
-    
-    # Apply all anonymization patterns
+
     anonymized = message
 
     # Tenant/org masking (run early to avoid leaking names inside other structures)
     anonymized = _redact_tenant_like_values(anonymized)
 
-    # 1. Email addresses (e.g., john.doe@example.com)
-    anonymized = re.sub(
-        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-        '[EMAIL_REDACTED]',
-        anonymized
-    )
-    
-    # 2. userName field in log structures (e.g., userName='John Doe')
-    anonymized = re.sub(
-        r"userName='([^']+)'",
-        "userName='[USER_NAME_REDACTED]'",
-        anonymized
-    )
-    
-    # 3. User names in JSON-like structures with quotes
-    anonymized = re.sub(
-        r'"userName"\s*:\s*"([^"]+)"',
-        '"userName":"[USER_NAME_REDACTED]"',
-        anonymized
-    )
-    
-    # 4. Common name patterns in error messages (First Last format)
-    # This catches patterns like "user: John Smith" or "User 'Jane Doe'"
-    # Be conservative - only match clear First+Last name patterns
-    anonymized = re.sub(
-        r'\b([A-Z][a-z]+\s+[A-Z][a-z]+)\b(?=[\s,\'\"])',
-        '[NAME_REDACTED]',
-        anonymized
-    )
-    
-    # 5. statusUpdaterName field
-    anonymized = re.sub(
-        r"statusUpdaterName='([^']+)'",
-        "statusUpdaterName='[NAME_REDACTED]'",
-        anonymized
-    )
-    
-    # 6. userComment field (may contain user-entered text)
-    anonymized = re.sub(
-        r"userComment='([^']+)'",
-        "userComment='[COMMENT_REDACTED]'",
-        anonymized
-    )
-    
-    # 7. User display names in brackets or parentheses
-    anonymized = re.sub(
-        r'\[user:\s*([^\]]+)\]',
-        '[user:[USER_REDACTED]]',
-        anonymized,
-        flags=re.IGNORECASE
-    )
-    
-    # 8. Phone numbers (various formats)
-    anonymized = re.sub(
-        r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b',
-        '[PHONE_REDACTED]',
-        anonymized
-    )
+    anonymized = _sub(anonymized, _EMAIL_RE, "[EMAIL_REDACTED]")
+    anonymized = _sub(anonymized, _USERNAME_SQ_RE, "userName='[USER_NAME_REDACTED]'")
+    anonymized = _sub(anonymized, _USERNAME_JSON_RE, '"userName":"[USER_NAME_REDACTED]"')
 
-    # Run tenant masking again after other substitutions (covers values introduced by normalization)
+    # Keep same conservative matching approach
+    anonymized = _sub(anonymized, _NAME_RE, "[NAME_REDACTED]")
+
+    anonymized = _sub(anonymized, _STATUS_UPDATER_RE, "statusUpdaterName='[NAME_REDACTED]'")
+    anonymized = _sub(anonymized, _USER_COMMENT_RE, "userComment='[COMMENT_REDACTED]'")
+    anonymized = _sub(anonymized, _USER_BRACKET_RE, "[user:[USER_REDACTED]]")
+    anonymized = _sub(anonymized, _PHONE_RE, "[PHONE_REDACTED]")
+
+    # Run tenant masking again after other substitutions
     anonymized = _redact_tenant_like_values(anonymized)
 
     return anonymized
 
 
-def anonymize_csv_file(input_path: str, output_path: str = None) -> str:
-    """
-    Anonymize an existing CSV file containing logs.
-    
-    Args:
-        input_path: Path to CSV file with potentially sensitive data
-        output_path: Path to save anonymized CSV (defaults to input_path with '_anonymized' suffix)
-        
-    Returns:
-        Path to anonymized file
-    """
+def anonymize_csv_file(input_path: str, output_path: str | None = None) -> str:
+    """Anonymize an existing CSV file containing logs."""
     import csv
-    import os
-    
+
     if output_path is None:
         base, ext = os.path.splitext(input_path)
         output_path = f"{base}_anonymized{ext}"
-    
-    with open(input_path, 'r', encoding='utf-8', newline='') as infile:
+
+    with open(input_path, "r", encoding="utf-8", newline="") as infile:
         reader = csv.DictReader(infile)
         fieldnames = reader.fieldnames
-        
-        with open(output_path, 'w', encoding='utf-8', newline='') as outfile:
+
+        with open(output_path, "w", encoding="utf-8", newline="") as outfile:
             writer = csv.DictWriter(outfile, fieldnames=fieldnames)
             writer.writeheader()
-            
+
             for row in reader:
-                # Anonymize the log_message field
-                if 'log_message' in row:
-                    row['log_message'] = anonymize_log_message(row['log_message'])
+                if "log_message" in row:
+                    row["log_message"] = anonymize_log_message(row["log_message"])
                 writer.writerow(row)
-    
+
     print(f"Anonymized CSV saved to: {output_path}")
     return output_path
