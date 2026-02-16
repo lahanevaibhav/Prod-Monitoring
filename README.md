@@ -41,10 +41,20 @@ This project collects **CloudWatch dashboard metrics evidence** (screenshots/ima
 
 This will populate folders like:
 
-- `SRA/<REGION>/screenshots/` (PNG images)
-- `SRA/<REGION>/csv_data/` (CSV outputs)
-- `SRM/<REGION>/screenshots/` (PNG images)
-- `SRM/<REGION>/csv_data/` (CSV outputs)
+- `output/prod/SRA/<REGION>/screenshots/` (PNG images)
+- `output/prod/SRA/<REGION>/csv_data/` (CSV outputs)
+- `output/prod/SRM/<REGION>/screenshots/` (PNG images)
+- `output/prod/SRM/<REGION>/csv_data/` (CSV outputs)
+- `output/prod/RDS/<REGION>/screenshots/` (PNG images for RDS metrics)
+- `output/prod/RDS/<REGION>/csv_data/` (CSV outputs including top queries and slow queries)
+
+## RDS Metrics Collection
+
+The project now includes comprehensive RDS metrics collection. See [RDS_README.md](RDS_README.md) for detailed documentation on:
+- Configuring RDS instances
+- Available metrics
+- Performance Insights integration
+- Troubleshooting guide
 
 ## Generate report (after collection)
 

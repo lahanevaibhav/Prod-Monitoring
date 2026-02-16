@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 
 from metrics_helper import getAllMetricDetails
 from screenshot_helper import save_all_widgets_for_all_regions
+from rds_helper import collect_all_rds_metrics
+from config import METRICS_METADATA_RDS, METRICS_METADATA_RDS_PERF
 
 # Hardcoded configuration: set to True to collect 'perf' metadata and write under perf/ directories
 IS_PERF = False
@@ -24,7 +26,18 @@ def main(is_perf: bool = IS_PERF):
     print("Starting screenshot collection for SRA and SRM services...")
     save_all_widgets_for_all_regions(start_time=START_TIME, end_time=END_TIME, is_perf=is_perf)
 
-    print("Data collection complete for both services!")
+    # Collect RDS metrics for all configured regions
+    rds_metadata = METRICS_METADATA_RDS_PERF if is_perf else METRICS_METADATA_RDS
+    if rds_metadata:
+        print("Starting RDS metrics collection...")
+        collect_all_rds_metrics(start_time=START_TIME, end_time=END_TIME,
+                               rds_metadata=rds_metadata, is_perf=is_perf)
+    else:
+        print("Skipping RDS metrics collection (no RDS instances configured)")
+        print("  To enable: Run 'python discover_rds_instances.py' to find your RDS instances")
+        print("  Then update config.py with your RDS instance identifiers")
+
+    print("Data collection complete for all services (SRA, SRM, and RDS)!")
 
 if __name__ == "__main__":
     main()

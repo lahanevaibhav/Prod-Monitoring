@@ -52,3 +52,38 @@ SERVICES_METADATA_PERF = {
 # CloudWatch metric period in seconds
 PERIOD = 300
 
+# ============================================================================
+# RDS CONFIGURATION
+# ============================================================================
+# To enable RDS metrics collection:
+# 1. Find your RDS instance identifiers:
+#    aws rds describe-db-instances --region us-west-2 --query 'DBInstances[*].DBInstanceIdentifier'
+# 2. Update the dictionaries below with your actual instance names
+# 3. Comment out or remove regions you don't want to collect
+#
+# Format: "REGION_CODE": ("aws_region", "db_instance_identifier")
+# ============================================================================
+
+# RDS metadata for production environment
+# WFM Test instances with Performance Insights enabled
+METRICS_METADATA_RDS = {
+    # WFM Test instances (both have Performance Insights - queries will be collected!)
+    "NA1_WFM_1": ("us-west-2", "test-wfm-storage-wfmaurora57instance1-7ynzsbxgvvab"),
+    "NA1_WFM_2": ("us-west-2", "test-wfm-storage-wfmaurora57instance2-nqqtzm9ousss"),
+
+    # Additional options (uncomment to enable):
+    # Development WFM instances
+    # "NA1_DEV_WFM_1": ("us-west-2", "dev-wfm-storage-wfmaurora57instance1-ljzijyljuarm"),
+    # "NA1_DEV_WFM_2": ("us-west-2", "dev-wfm-storage-wfmaurora57instance2-xb028zp22hnx"),
+
+    # Test Platform Storage
+    # "NA1_PLATFORM_1": ("us-west-2", "test-platform-storage-rds-aurorainstance4-ygr4nstbk5h2"),
+    # "NA1_PLATFORM_2": ("us-west-2", "test-platform-storage-rds-aurorainstance5-vy4oabrxqzfl"),
+}
+
+# RDS metadata for performance environment
+METRICS_METADATA_RDS_PERF = {
+    # Uncomment and update with your actual RDS instance:
+    # "NA1": ("us-west-2", "perf-wcx-rds-instance")
+}
+
