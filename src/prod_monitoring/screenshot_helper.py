@@ -1,16 +1,21 @@
 import os
-import boto3
 import json
 from typing import Dict, Iterable
 
-from config import SERVICES_METADATA, SERVICES_METADATA_PERF
-from dashboard_helper import get_dashboard_data
-from csv_helper import OUTPUT_ROOT
+from .unified_config import SERVICES_METADATA, SERVICES_METADATA_PERF
+from .dashboard_helper import get_dashboard_data
+from .csv_helper import OUTPUT_ROOT
+from .aws_profile_manager import get_profile_manager, AWSProfileManager
+
+# Get the profile manager instance
+profile_manager = get_profile_manager()
 
 ROOT_DIR = os.path.dirname(__file__)
 GLOBAL_SCREENSHOTS_DIR = os.path.join(ROOT_DIR, 'screenshots')  # legacy root screenshots (kept for backwards comp.)
 os.makedirs(GLOBAL_SCREENSHOTS_DIR, exist_ok=True)
-cloudwatch_client = boto3.client("cloudwatch")  # default client (may be reused for NA1 aggregate if desired)
+# Use data profile for CloudWatch access
+cloudwatch_client = profile_manager.create_client("cloudwatch",
+                                                  purpose=AWSProfileManager.DATA_PROFILE)
 
 
 def save_metric_widget_image(widget, metric_name, start_time, end_time, target_dir: str):
@@ -73,20 +78,32 @@ def save_all_widgets_for_region(region_code: str, service_name: str = "SRA", sta
     screenshots_dir = os.path.join(region_folder, 'screenshots')
 
     dashboard_name, aws_region, _log_group = metadata[region_code]
-    cw_client = boto3.client("cloudwatch", region_name=aws_region)
-    # override global client region for widget generation
-    global cloudwatch_client
-    cloudwatch_client = cw_client
-    dashboard = get_dashboard_data(dashboard_name, cw_client)
-    saved = []
-    for widget in dashboard.get("widgets", []):
-        metric_name = widget["properties"].get("title", "unknown_metric")
-        try:
-            path = save_metric_widget_image(widget, metric_name, start_time, end_time, target_dir=screenshots_dir)
-            saved.append(path)
-        except Exception as e:
-            print(f"Failed to save widget {metric_name} for service {service_name} region {region_code}: {e}")
-    return saved
+
+    try:
+        cw_client = profile_manager.create_client("cloudwatch", region_name=aws_region,
+                                                 purpose=AWSProfileManager.DATA_PROFILE)
+        # override global client region for widget generation
+        global cloudwatch_client
+        cloudwatch_client = cw_client
+        dashboard = get_dashboard_data(dashboard_name, cw_client)
+        saved = []
+        for widget in dashboard.get("widgets", []):
+            metric_name = widget["properties"].get("title", "unknown_metric")
+            try:
+                path = save_metric_widget_image(widget, metric_name, start_time, end_time, target_dir=screenshots_dir)
+                saved.append(path)
+            except Exception as e:
+                print(f"Failed to save widget {metric_name} for service {service_name} region {region_code}: {e}")
+        print(f"SUCCESS: Saved {len(saved)} screenshots for {service_name}/{region_code}")
+        return saved
+    except Exception as e:
+        error_msg = str(e)
+        if "ResourceNotFound" in error_msg or "does not exist" in error_msg:
+            print(f"WARNING: Skipping screenshots for {service_name}/{region_code} - Dashboard '{dashboard_name}' not found")
+            print(f"  Update src/prod_monitoring/config.py or see CONFIGURATION_SETUP.md")
+        else:
+            print(f"ERROR: Error collecting screenshots for {service_name}/{region_code}: {e}")
+        return []
 
 
 def save_all_widgets_for_all_regions(start_time=None, end_time=None, regions: Iterable[str] | None = None, services: Iterable[str] | None = None, is_perf: bool = False):

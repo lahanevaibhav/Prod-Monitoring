@@ -1,12 +1,32 @@
 import csv
 import os
 import re
+import json
 from typing import List, Dict, Optional
 from collections import Counter, defaultdict
 
 # Base output directory: repo_root/output
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 OUTPUT_ROOT = os.path.join(REPO_ROOT, "output")
+
+# Import configuration settings
+try:
+    from .unified_config import ENABLE_AI_ANALYSIS
+except ImportError:
+    # Fallback if unified_config is not available
+    ENABLE_AI_ANALYSIS = True
+
+GENERATE_AI_TEXT_OUTPUT = True  # Always generate text output for AI
+
+# Try to import AI analyzer (optional dependency)
+try:
+    from .ai_analyzer import analyze_errors_with_ai
+    AI_ANALYSIS_AVAILABLE = True
+except ImportError:
+    AI_ANALYSIS_AVAILABLE = False
+    # Define dummy function for when AI is not available
+    def analyze_errors_with_ai(*args, **kwargs):
+        return {"status": "unavailable", "message": "AI analyzer not available"}
 
 
 def _region_csv_dir(region: Optional[str]):
@@ -65,7 +85,7 @@ def save_error_logs(error_log_rows: list, region: Optional[str] = None):
     return filepath
 
 def classify_and_save_errors(error_log_path: str, dir_path: str):
-    """Classify errors and save to classified_errors.csv"""
+    """Classify errors and save to classified_errors.csv with optional AI analysis"""
 
     classified_path = os.path.join(dir_path, "classified_errors.csv")
 
@@ -124,6 +144,121 @@ def classify_and_save_errors(error_log_path: str, dir_path: str):
             ])
 
     print(f"Saved classified errors: {classified_path} ({len(error_signatures)} unique patterns)")
+
+    # Handle case where no errors were found (this is good news!)
+    if len(error_signatures) == 0:
+        print(f"✅ No errors found in {service}/{region} - System is healthy!")
+        print(f"   This is good news - the service is operating normally.")
+
+    # Perform AI analysis if enabled and available
+    if ENABLE_AI_ANALYSIS and AI_ANALYSIS_AVAILABLE:
+        try:
+            # Extract region and service from dir_path (e.g., prod/SRA/NA1)
+            path_parts = dir_path.split(os.sep)
+            region = "Unknown"
+            service = "Unknown"
+
+            for i, part in enumerate(path_parts):
+                if part in ["SRA", "SRM", "RDS"]:
+                    service = part
+                    if i + 1 < len(path_parts):
+                        region = path_parts[i + 1]
+                    break
+
+            # Prepare classified errors as list of dicts for AI
+            classified_errors_list = []
+            for signature, count in sorted_errors:
+                classified_errors_list.append({
+                    "signature": signature,
+                    "count": count,
+                    "location": error_details[signature]["location"],
+                    "type": error_details[signature]["type"],
+                    "sample": error_examples.get(signature, "")
+                })
+
+            print(f"🤖 Running AI analysis for {service}/{region}...")
+
+            # AI will generate health report if no errors, or error analysis if errors found
+            if len(classified_errors_list) == 0:
+                print(f"   Generating system health report (no errors detected)...")
+            else:
+                print(f"   Analyzing {len(classified_errors_list)} error patterns...")
+
+            ai_result = analyze_errors_with_ai(
+                classified_errors=classified_errors_list,
+                region=region,
+                service=service
+            )
+
+            # Check if AI analysis actually succeeded
+            if ai_result.get('status') == 'error':
+                print(f"⚠️  AI analysis failed: {ai_result.get('message', 'Unknown error')}")
+                # Save error result for debugging
+                ai_analysis_path = os.path.join(dir_path, "ai_analysis_error.json")
+                with open(ai_analysis_path, 'w', encoding='utf-8') as f:
+                    json.dump(ai_result, f, indent=2)
+                print(f"   Error details saved to: {ai_analysis_path}")
+                print(f"   Troubleshooting:")
+                print(f"   1. Check LAMBDA_ENDPOINT in config.properties")
+                print(f"   2. Verify AWS credentials have Lambda invoke permissions")
+                print(f"   3. Test Lambda endpoint manually or contact DevOps team")
+                return
+
+            # Save AI analysis to JSON file
+            ai_analysis_path = os.path.join(dir_path, "ai_analysis.json")
+            with open(ai_analysis_path, 'w', encoding='utf-8') as f:
+                json.dump(ai_result, f, indent=2)
+
+            # Generate text output if analysis was successful
+            if ai_result.get('status') == 'success':
+                analysis_text = ai_result.get('analysis', 'No analysis available')
+                print(f"✓ AI analysis saved: {ai_analysis_path}")
+
+                # Create markdown summary
+                md_path = os.path.join(dir_path, "ai_analysis_summary.md")
+                with open(md_path, 'w', encoding='utf-8') as f:
+                    f.write(f"# AI Analysis Summary\n\n")
+                    f.write(f"**Service:** {service}\n")
+                    f.write(f"**Region:** {region}\n")
+                    f.write(f"**Analysis Date:** {ai_result.get('timestamp', 'N/A')}\n")
+                    f.write(f"**Total Errors Analyzed:** {ai_result.get('error_count', 0)}\n")
+                    f.write(f"**Model:** {ai_result.get('model', 'N/A')}\n\n")
+                    f.write("---\n\n")
+                    f.write(analysis_text)
+                print(f"✓ AI summary (markdown) saved: {md_path}")
+
+                # Also create plain text output if enabled
+                if GENERATE_AI_TEXT_OUTPUT:
+                    txt_path = os.path.join(dir_path, "ai_analysis.txt")
+                    with open(txt_path, 'w', encoding='utf-8') as f:
+                        f.write("=" * 80 + "\n")
+                        f.write("AI ANALYSIS - LOG ERRORS\n")
+                        f.write("=" * 80 + "\n\n")
+                        f.write(f"Service: {service}\n")
+                        f.write(f"Region: {region}\n")
+                        f.write(f"Analysis Date: {ai_result.get('timestamp', 'N/A')}\n")
+                        f.write(f"Total Errors Analyzed: {ai_result.get('error_count', 0)}\n")
+                        f.write(f"Model: {ai_result.get('model', 'N/A')}\n")
+                        f.write("\n" + "=" * 80 + "\n\n")
+                        # Remove markdown formatting for plain text
+                        plain_text = analysis_text.replace('**', '').replace('##', '').replace('#', '')
+                        f.write(plain_text)
+                        f.write("\n\n" + "=" * 80 + "\n")
+                    print(f"✓ AI summary (text) saved: {txt_path}")
+            else:
+                print(f"⚠️  AI analysis status: {ai_result.get('status')}")
+                print(f"   Message: {ai_result.get('message', 'No message')}")
+
+        except Exception as e:
+            print(f"⚠️  AI analysis failed with exception: {e}")
+            print(f"   Check LAMBDA_ENDPOINT in config.properties")
+            print(f"   Verify AWS credentials and permissions")
+            import traceback
+            print(f"   Details: {traceback.format_exc()}")
+    elif not ENABLE_AI_ANALYSIS:
+        print("ℹ️  AI analysis disabled in config.properties")
+    else:
+        print("ℹ️  AI analysis not available. Configure LAMBDA_ENDPOINT in config.properties")
 
 def _extract_error_signature(log_message: str):
     """Extract error signature from log message.

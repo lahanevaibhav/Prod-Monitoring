@@ -1,15 +1,28 @@
 import logging
-import boto3
 from datetime import datetime
 
-from csv_helper import save_error_logs
-from anonymizer import anonymize_log_message
+from .csv_helper import save_error_logs
+from .anonymizer import anonymize_log_message
+from .aws_profile_manager import get_profile_manager, AWSProfileManager
+
+# Import configuration settings
+try:
+    from .unified_config import MAX_LOG_ENTRIES
+except ImportError:
+    # Fallback defaults if unified_config is not available
+    MAX_LOG_ENTRIES = 10000
+
+# Additional settings
+ANONYMIZE_LOGS = True
+LOG_FILTER_PATTERN = 'ERROR -METRICS_AGG'
+MAX_LOG_ITERATIONS = 100
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
-# Global flag to enable/disable anonymization (set to True when preparing data for LLM)
-ANONYMIZE_LOGS = True  # Set to False to keep raw logs for internal debugging
+# Get the profile manager instance
+profile_manager = get_profile_manager()
+
 
 def should_exclude_log(message):
     """Check if entire log entry should be excluded based on useless patterns."""
@@ -93,7 +106,8 @@ def process_log_events(events):
             })
     return log_rows
 
-def collect_error_logs(log_group, start_time, end_time, region_code, region, filter_pattern='ERROR -METRICS_AGG', max_entries=10000, max_iterations=100):
+def collect_error_logs(log_group, start_time, end_time, region_code, region,
+                      filter_pattern=None, max_entries=None, max_iterations=None):
     """
     Collect and save error logs from CloudWatch Logs.
     
@@ -101,14 +115,23 @@ def collect_error_logs(log_group, start_time, end_time, region_code, region, fil
         log_group (str): CloudWatch log group name
         start_time (datetime): Start time for log collection
         end_time (datetime): End time for log collection
-        filter_pattern (str): CloudWatch filter pattern for logs
-        max_entries (int): Maximum number of log entries to collect
-        max_iterations (int): Maximum number of pagination iterations
-    
+        filter_pattern (str): CloudWatch filter pattern for logs (uses config default if None)
+        max_entries (int): Maximum number of log entries to collect (uses config default if None)
+        max_iterations (int): Maximum number of pagination iterations (uses config default if None)
+
     Returns:
         int: Number of log entries collected
     """
-    logs_client = boto3.client("logs", region_name=region)
+    # Use config defaults if not specified
+    if filter_pattern is None:
+        filter_pattern = LOG_FILTER_PATTERN
+    if max_entries is None:
+        max_entries = MAX_LOG_ENTRIES
+    if max_iterations is None:
+        max_iterations = MAX_LOG_ITERATIONS
+
+    logs_client = profile_manager.create_client("logs", region_name=region,
+                                               purpose=AWSProfileManager.DATA_PROFILE)
     start_ms, end_ms = get_time_range_for_logs(start_time, end_time)
     error_log_rows = []
     iteration_count = 0

@@ -85,6 +85,12 @@ def anonymize_log_message(message: str) -> str:
     return anonymized
 
 
+# Alias for general text anonymization
+def anonymize_text(text: str) -> str:
+    """Anonymize any text - alias for anonymize_log_message"""
+    return anonymize_log_message(text)
+
+
 def anonymize_csv_file(input_path: str, output_path: str | None = None) -> str:
     """Anonymize an existing CSV file containing logs."""
     import csv
