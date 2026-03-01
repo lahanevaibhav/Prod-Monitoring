@@ -1,15 +1,18 @@
 import logging
-import boto3
 import os
 from datetime import datetime
 import json
 
-from csv_helper import save_metrics_group_to_csv, OUTPUT_ROOT
-from log_helper import collect_error_logs
-from config import SERVICES_METADATA, SERVICES_METADATA_PERF, PERIOD
+from .csv_helper import save_metrics_group_to_csv, OUTPUT_ROOT
+from .log_helper import collect_error_logs
+from .unified_config import SERVICES_METADATA, SERVICES_METADATA_PERF, PERIOD
+from .aws_profile_manager import get_profile_manager, AWSProfileManager
 
 
 logging.basicConfig(level=logging.INFO)
+
+# Get the profile manager instance
+profile_manager = get_profile_manager()
 
 def get_metric_types(service_name):
     """Generate metric type definitions for a given service (SRA or SRM)."""
@@ -22,13 +25,46 @@ def get_metric_types(service_name):
     }
 
 def make_cloudwatch_client(region_name: str):
-    return boto3.client("cloudwatch", region_name=region_name)
+    return profile_manager.create_client("cloudwatch", region_name=region_name,
+                                        purpose=AWSProfileManager.DATA_PROFILE)
 
 
 def get_dashboard(region_dashboard: str, region_name: str):
-    cw = make_cloudwatch_client(region_name)
-    response = cw.get_dashboard(DashboardName=region_dashboard)
-    return json.loads(response["DashboardBody"])
+    """Fetch dashboard from CloudWatch with better error handling and credential refresh."""
+    max_retries = 2
+
+    for attempt in range(max_retries):
+        try:
+            cw = make_cloudwatch_client(region_name)
+            response = cw.get_dashboard(DashboardName=region_dashboard)
+            return json.loads(response["DashboardBody"])
+
+        except Exception as e:
+            error_msg = str(e)
+
+            # Handle expired token - refresh and retry
+            if "ExpiredToken" in error_msg and attempt < max_retries - 1:
+                logging.warning(f"Credentials expired, refreshing... (attempt {attempt + 1}/{max_retries})")
+                profile_manager._refresh_credentials_if_needed(AWSProfileManager.DATA_PROFILE)
+                continue
+
+            # Handle dashboard not found
+            if "ResourceNotFound" in error_msg or "does not exist" in error_msg:
+                logging.error(f"Dashboard '{region_dashboard}' not found in region '{region_name}'")
+                logging.error("To fix this:")
+                logging.error(f"  1. List available dashboards: aws cloudwatch list-dashboards --region {region_name} --profile wfoprod")
+                logging.error("  2. Update config.ini with the correct dashboard name")
+                logging.error("  3. Or comment out this region in config.ini if you don't have a dashboard")
+
+            # Handle expired credentials
+            elif "ExpiredToken" in error_msg:
+                logging.error(f"AWS credentials have expired for profile 'wfoprod'")
+                logging.error("To fix this:")
+                logging.error("  1. For SSO: aws sso login --profile wfoprod")
+                logging.error("  2. For IAM: aws configure --profile wfoprod")
+                logging.error("  3. Verify: aws sts get-caller-identity --profile wfoprod")
+
+            raise
 
 
 def get_metrics_data(cw_client, metric_query, start_time, end_time):
@@ -151,13 +187,23 @@ def collect_metrics_data_for_region(region_code, dashboard_name, region_name, lo
     os.makedirs(region_folder, exist_ok=True)
 
     print(f"Collecting {service_name} for region {region_code} (dashboard={dashboard_name}, aws_region={region_name}) into {region_folder}")
-    dashboard_body = get_dashboard(dashboard_name, region_name)
-    cw_client = make_cloudwatch_client(region_name)
-    for metric_type_key, meta in metric_types.items():
-        group_data = process_metric_type(cw_client, dashboard_body, metric_type_key, meta, start_time, end_time)
-        save_metrics_group_to_csv(meta['name'], group_data, region=region_rel_folder)
-    # Collect logs
-    collect_error_logs(log_group, start_time, end_time, region_rel_folder, region=region_name, max_entries=10000, max_iterations=100)
+
+    try:
+        dashboard_body = get_dashboard(dashboard_name, region_name)
+        cw_client = make_cloudwatch_client(region_name)
+        for metric_type_key, meta in metric_types.items():
+            group_data = process_metric_type(cw_client, dashboard_body, metric_type_key, meta, start_time, end_time)
+            save_metrics_group_to_csv(meta['name'], group_data, region=region_rel_folder)
+        # Collect logs
+        collect_error_logs(log_group, start_time, end_time, region_rel_folder, region=region_name, max_entries=10000, max_iterations=100)
+        print(f"SUCCESS: Collected data for {service_name}/{region_code}")
+    except Exception as e:
+        error_msg = str(e)
+        if "ResourceNotFound" in error_msg or "does not exist" in error_msg:
+            logging.warning(f"WARNING: Skipping {service_name}/{region_code} - Dashboard not found. See CONFIGURATION_SETUP.md")
+        else:
+            logging.error(f"ERROR: Failed to collect data for {service_name}/{region_code}: {e}")
+            raise
 
 
 def getAllMetricDetails(start_time: datetime | None = None, end_time: datetime | None = None, regions: list | None = None, services: list | None = None, is_perf: bool = False):

@@ -5,3 +5,34 @@ __pycache__/
 perf/
 prod/
 .idea/
+
+# Output directory
+output/
+
+# Security - Never commit tokens or API keys
+.env
+.env.local
+*.pem
+*.key
+*_token.txt
+*_secret.txt
+
+# Python
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~

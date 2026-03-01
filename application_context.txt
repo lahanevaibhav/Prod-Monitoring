@@ -1,0 +1,78 @@
+# Application Context for AI Analysis
+# This file provides context about your application architecture and common error patterns.
+# Edit this file to improve AI analysis accuracy.
+
+## Application Architecture
+
+### Services Overview
+- **SRA (Schedule Rules Automation)**: Manages automated scheduling rules and triggers
+- **SRM (Schedule Requests Manager)**: Handles schedule change requests and approvals
+- **RDS**: Aurora MySQL database cluster providing persistent storage
+
+### Technology Stack
+- Java-based microservices
+- Spring Boot framework
+- AWS ECS (container orchestration)
+- AWS CloudWatch (logging and monitoring)
+- AWS RDS Aurora (database)
+- RESTful APIs for inter-service communication
+
+### Common Integration Points
+- External APIs: Third-party systems for workforce management
+- Internal APIs: Communication between SRA and SRM services
+- Database: Aurora MySQL cluster (shared storage layer)
+- Message Queue: Asynchronous event processing (if applicable)
+
+## Known Error Patterns
+
+### Critical Errors
+- NullPointerException: Often related to missing validation or null tenant context
+- IllegalArgumentException: Invalid request parameters or data validation failures
+- TimeoutException: Database queries or external API calls exceeding timeout thresholds
+
+### Performance Issues
+- Slow API responses (>500ms): May indicate database query optimization needed
+- High CPU usage (>70%): Could be inefficient algorithms or memory leaks
+- External API latency: Third-party service degradation or network issues
+
+### Database-Related Errors
+- Connection pool exhaustion: Too many concurrent database connections
+- Deadlock exceptions: Concurrent transaction conflicts
+- Slow queries: Missing indexes or inefficient query patterns
+
+## Business Context
+
+### Peak Usage Patterns
+- Business hours: 8 AM - 6 PM in respective time zones
+- End of shift processing: Higher load during shift transitions
+- Batch operations: Nightly processing windows
+
+### Critical Business Flows
+1. Schedule request submission and approval workflow
+2. Automated rule execution and schedule updates
+3. Real-time notification delivery
+4. Data synchronization across regions
+
+## Deployment Regions
+- NA1 (North America - us-west-2): Primary production region
+- AU (Australia - ap-southeast-2): APAC operations
+- CA (Canada - ca-central-1): Canadian compliance requirements
+- JP (Japan - ap-northeast-1): Japanese market
+- DE (Germany - eu-central-1): European operations
+- UK (United Kingdom - eu-west-2): UK/European operations
+
+## Troubleshooting Guidelines
+
+### When to escalate
+- Error rate >100 errors/hour in any region
+- Performance degradation >1000ms average response time
+- Database CPU utilization >85% sustained
+- Any errors containing "OutOfMemory" or "StackOverflow"
+
+### Common Root Causes
+- Tenant configuration issues: Missing or invalid tenant settings
+- Data synchronization delays: Cross-region replication lag
+- Cache invalidation problems: Stale data in application cache
+- Rate limiting: External API throttling or internal rate limits
+
+
